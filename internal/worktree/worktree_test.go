@@ -85,3 +85,21 @@ func TestParsePorcelainParsesKeyOnlyDetachedAndBare(t *testing.T) {
 		t.Fatalf("second worktree Bare = false, want true")
 	}
 }
+
+func TestParsePorcelainParsesBareWithoutBranch(t *testing.T) {
+	input := []byte("worktree /tmp/bare.git\nbare\n\n")
+
+	got, err := ParsePorcelain(input)
+	if err != nil {
+		t.Fatalf("ParsePorcelain returned error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len(ParsePorcelain) = %d, want 1", len(got))
+	}
+	if !got[0].Bare {
+		t.Fatalf("Bare = false, want true")
+	}
+	if got[0].Detached {
+		t.Fatalf("Detached = true, want false")
+	}
+}

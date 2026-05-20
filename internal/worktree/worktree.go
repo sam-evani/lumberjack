@@ -49,7 +49,7 @@ func ParsePorcelain(out []byte) ([]Entry, error) {
 		if !haveCurrent {
 			return
 		}
-		if current.Branch == "" {
+		if current.Branch == "" && !current.Bare {
 			current.Detached = true
 		}
 		entries = append(entries, current)
