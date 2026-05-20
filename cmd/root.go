@@ -11,9 +11,11 @@ import (
 var rootPath string
 
 var rootCmd = &cobra.Command{
-	Use:   "chainsaw",
-	Short: "Prune git worktrees safely",
-	Long:  "chainsaw is an interactive TUI for inspecting and pruning git worktrees.",
+	Use:           "chainsaw",
+	Short:         "Prune git worktrees safely",
+	Long:          "chainsaw is an interactive TUI for inspecting and pruning git worktrees.",
+	SilenceErrors: true,
+	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return cmd.Help()
 	},
