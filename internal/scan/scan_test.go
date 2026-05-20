@@ -111,6 +111,45 @@ func TestRootDeduplicatesRowsByWorktreePath(t *testing.T) {
 	}
 }
 
+func TestRootSkipsLinkedWorktreeChildren(t *testing.T) {
+	root := t.TempDir()
+	linkedPath := filepath.Join(root, "aaa-linked")
+	if err := os.MkdirAll(linkedPath, 0o755); err != nil {
+		t.Fatalf("make linked worktree: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(linkedPath, ".git"), []byte("gitdir: ../repo/.git/worktrees/aaa-linked\n"), 0o644); err != nil {
+		t.Fatalf("write linked worktree .git file: %v", err)
+	}
+	repoPath := makeRepo(t, root, "zzz-repo")
+
+	git := &fakeGit{
+		porcelain: porcelain(
+			"worktree "+linkedPath,
+			"HEAD abc123",
+			"branch refs/heads/feature",
+		),
+		baseRefs: map[string]bool{"main": true},
+		merged:   map[string]bool{"feature": true},
+	}
+
+	rows, err := Root(root, factoryFor(map[string]*fakeGit{repoPath: git}))
+	if err != nil {
+		t.Fatalf("Root returned error: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("len(rows) = %d, want 1", len(rows))
+	}
+	if rows[0].RepoPath != repoPath {
+		t.Fatalf("RepoPath = %q, want %q", rows[0].RepoPath, repoPath)
+	}
+	if rows[0].Status != worktree.StatusMerged {
+		t.Fatalf("Status = %q, want %q", rows[0].Status, worktree.StatusMerged)
+	}
+	if rows[0].Protected {
+		t.Fatalf("Protected = true, want false")
+	}
+}
+
 func TestRootMarksFeatureUnknownWhenNoBaseRefs(t *testing.T) {
 	root := t.TempDir()
 	repoPath := makeRepo(t, root, "repo")

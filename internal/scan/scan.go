@@ -33,7 +33,7 @@ func Root(root string, factory GitFactory) ([]worktree.Entry, error) {
 			continue
 		}
 		repoPath := filepath.Join(root, child.Name())
-		if _, err := os.Stat(filepath.Join(repoPath, ".git")); err != nil {
+		if !hasGitDir(repoPath) {
 			continue
 		}
 		rows = append(rows, scanRepo(repoPath, child.Name(), factory(repoPath))...)
@@ -46,6 +46,11 @@ func Root(root string, factory GitFactory) ([]worktree.Entry, error) {
 		return rows[i].RepoName < rows[j].RepoName
 	})
 	return rows, nil
+}
+
+func hasGitDir(repoPath string) bool {
+	info, err := os.Stat(filepath.Join(repoPath, ".git"))
+	return err == nil && info.IsDir()
 }
 
 func scanRepo(repoPath string, repoName string, git Git) []worktree.Entry {
