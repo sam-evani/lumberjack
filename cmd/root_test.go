@@ -2,10 +2,12 @@ package cmd
 
 import (
 	"bytes"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/sam-evani/lumberjack/internal/tui"
 	"github.com/sam-evani/lumberjack/internal/worktree"
 )
 
@@ -68,6 +70,51 @@ func TestRootRejectsArgs(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "extra") {
 		t.Fatalf("expected error to reject extra arg, got %v", err)
+	}
+}
+
+func TestRootScansRequestedRootAndLaunchesTUIWithGitDeleter(t *testing.T) {
+	originalRootRows := rootRows
+	originalRunTUI := runTUI
+	t.Cleanup(func() {
+		rootRows = originalRootRows
+		runTUI = originalRunTUI
+	})
+
+	wantRoot := "/tmp/chainsaw-root"
+	wantRows := []worktree.Entry{{RepoName: "repo", RepoPath: "/repo", Path: "/repo/.worktrees/feature"}}
+	var scannedRoot string
+	var launchedRows []worktree.Entry
+	var launchedDeleter tui.Deleter
+
+	rootRows = func(root string) ([]worktree.Entry, error) {
+		scannedRoot = root
+		return wantRows, nil
+	}
+	runTUI = func(rows []worktree.Entry, deleter tui.Deleter) error {
+		launchedRows = rows
+		launchedDeleter = deleter
+		return nil
+	}
+
+	stdout, stderr, err := executeRootForTest("--root", wantRoot)
+	if err != nil {
+		t.Fatalf("expected root command to succeed, got %v", err)
+	}
+	if stdout != "" {
+		t.Fatalf("expected no stdout, got %q", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got %q", stderr)
+	}
+	if scannedRoot != wantRoot {
+		t.Fatalf("rootRows called with %q, want %q", scannedRoot, wantRoot)
+	}
+	if !reflect.DeepEqual(launchedRows, wantRows) {
+		t.Fatalf("runTUI rows = %#v, want %#v", launchedRows, wantRows)
+	}
+	if _, ok := launchedDeleter.(tui.GitDeleter); !ok {
+		t.Fatalf("runTUI deleter = %T, want tui.GitDeleter", launchedDeleter)
 	}
 }
 
