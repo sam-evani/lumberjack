@@ -55,6 +55,22 @@ func TestVersionRejectsArgs(t *testing.T) {
 	}
 }
 
+func TestRootRejectsArgs(t *testing.T) {
+	stdout, stderr, err := executeRootForTest("--", "extra")
+	if err == nil {
+		t.Fatal("expected root command with extra arg to return an error")
+	}
+	if stdout != "" {
+		t.Fatalf("expected no root output, got %q", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("expected Cobra to leave argument error printing to Execute, got stderr %q", stderr)
+	}
+	if !strings.Contains(err.Error(), "extra") {
+		t.Fatalf("expected error to reject extra arg, got %v", err)
+	}
+}
+
 func TestHelpIncludesListCommand(t *testing.T) {
 	stdout, stderr, err := executeRootForTest("help")
 	if err != nil {
