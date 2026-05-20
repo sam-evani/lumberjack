@@ -78,6 +78,27 @@ func TestForceDeleteWithNoSelectionShowsMessageAndDoesNotConfirm(t *testing.T) {
 	}
 }
 
+func TestFilterModeTreatsPrintableQuitAndCancelKeysAsInput(t *testing.T) {
+	model := NewModel([]worktree.Entry{row("repo", "/repo/.worktrees/feature", worktree.StatusMerged)})
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	model = updated.(Model)
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
+	model = updated.(Model)
+
+	if cmd != nil {
+		t.Fatal("Update(q) returned a command, want nil")
+	}
+	if got := model.filter; got != "nq" {
+		t.Fatalf("filter = %q, want nq", got)
+	}
+	if !model.filtering {
+		t.Fatal("filtering = false, want true")
+	}
+}
+
 func TestConfirmationDisclosesPendingBranchActions(t *testing.T) {
 	rows := []worktree.Entry{
 		rowWith("repo", "/repo/.worktrees/merged", worktree.StatusMerged, func(entry *worktree.Entry) {

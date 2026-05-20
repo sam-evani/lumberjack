@@ -216,7 +216,10 @@ func (m *Model) refreshRows() {
 func (m Model) updateFiltering(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	switch {
-	case keyMatches(msg, keys.Quit):
+	case len(msg.Runes) > 0:
+		m.filter += string(msg.Runes)
+		m.rebuildVisible()
+	case key == "ctrl+c":
 		return m, tea.Quit
 	case keyMatches(msg, keys.Cancel), key == "enter":
 		m.filtering = false
@@ -227,9 +230,6 @@ func (m Model) updateFiltering(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case key == "ctrl+w":
 		m.filter = ""
-		m.rebuildVisible()
-	case len(msg.Runes) > 0:
-		m.filter += string(msg.Runes)
 		m.rebuildVisible()
 	}
 	m.clampCursor()
