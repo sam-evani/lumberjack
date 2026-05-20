@@ -7,7 +7,7 @@ It is designed for cleaning up worktrees under `$HOME/co`.
 ## Install
 
 ```bash
-go install github.com/sam-evani/lumberjack@latest
+go install github.com/sam-evani/lumberjack/cmd/chainsaw@latest
 ```
 
 ## Usage
@@ -28,6 +28,12 @@ Print TSV output:
 
 ```bash
 chainsaw list --root ~/co
+```
+
+Build locally:
+
+```bash
+go build -o chainsaw ./cmd/chainsaw
 ```
 
 The TSV columns are:
