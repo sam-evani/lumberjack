@@ -26,6 +26,54 @@ func TestSelectionStartsEmptyAndSpaceSelectsCurrentRow(t *testing.T) {
 	}
 }
 
+func TestViewUsesCheckboxesForSelection(t *testing.T) {
+	model := NewModel([]worktree.Entry{row("repo", "/repo/.worktrees/feature", worktree.StatusMerged)})
+
+	if view := model.View(); !strings.Contains(view, "[ ]") {
+		t.Fatalf("View() missing unchecked box:\n%s", view)
+	}
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeySpace})
+	model = updated.(Model)
+
+	if view := model.View(); !strings.Contains(view, "[x]") {
+		t.Fatalf("View() missing checked box:\n%s", view)
+	}
+}
+
+func TestViewShowsProtectedReason(t *testing.T) {
+	rows := []worktree.Entry{
+		rowWith("repo", "/repo", worktree.StatusUnknown, func(entry *worktree.Entry) {
+			entry.RepoPath = "/repo"
+			entry.Protected = true
+		}),
+		rowWith("repo", "/repo/.worktrees/error", worktree.StatusUnknown, func(entry *worktree.Entry) {
+			entry.Protected = true
+			entry.Error = "scan failed"
+		}),
+		rowWith("repo", "/repo/.worktrees/no-base", worktree.StatusUnknown, func(entry *worktree.Entry) {
+			entry.Protected = true
+		}),
+		rowWith("repo", "/repo/.worktrees/main", worktree.StatusBase, func(entry *worktree.Entry) {
+			entry.Branch = "main"
+			entry.Protected = true
+		}),
+	}
+	model := NewModel(rows)
+
+	view := model.View()
+	for _, want := range []string{
+		"protected: primary",
+		"protected: error",
+		"protected: no base",
+		"protected: main/master",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("View() missing %q:\n%s", want, view)
+		}
+	}
+}
+
 func TestDeleteWithNoSelectionShowsMessageAndDoesNotConfirm(t *testing.T) {
 	model := NewModel([]worktree.Entry{row("repo", "/repo/.worktrees/feature", worktree.StatusMerged)})
 

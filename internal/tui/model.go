@@ -424,32 +424,62 @@ func (m Model) bodyHeight() int {
 }
 
 func (m Model) header() string {
-	return fmt.Sprintf("%-3s %-28s %-16s %-18s %-16s %-5s %-10s %s", "sel", "path", "repo", "branch", "status", "dirty", "age", "last commit")
+	return fmt.Sprintf("%-3s %-28s %-16s %-18s %-22s %-5s %-10s %s", "del", "path", "repo", "branch", "status", "dirty", "age", "last commit")
 }
 
 func (m Model) renderRow(index int) string {
 	row := m.rows[index]
-	selected := " "
+	selected := "[ ]"
 	if m.selected[row.Path] {
-		selected = "*"
+		selected = "[x]"
 	}
-	status := string(row.Status)
-	if row.Protected {
-		status = "protected"
-	}
-	if row.Error != "" {
-		status = "error"
-	}
-	return fmt.Sprintf("%-3s %-28s %-16s %-18s %-16s %-5t %-10s %s",
+	return fmt.Sprintf("%-3s %-28s %-16s %-18s %-22s %-5t %-10s %s",
 		selected,
 		truncate(displayPath(row), 28),
 		truncate(row.RepoName, 16),
 		truncate(branch(row), 18),
-		truncate(status, 16),
+		truncate(statusLabel(row), 22),
 		row.Dirty,
 		truncate(age(row.LastCommitTime), 10),
-		truncate(row.LastCommitTitle, max(20, m.width-106)),
+		truncate(row.LastCommitTitle, max(20, m.width-112)),
 	)
+}
+
+func statusLabel(row worktree.Entry) string {
+	if row.Protected {
+		reason := protectedReason(row)
+		if reason == "" {
+			return "protected"
+		}
+		return "protected: " + reason
+	}
+	if row.Error != "" {
+		return "error"
+	}
+	return string(row.Status)
+}
+
+func protectedReason(row worktree.Entry) string {
+	switch {
+	case row.Error != "":
+		return "error"
+	case row.Path == row.RepoPath:
+		return "primary"
+	case row.Locked:
+		return "locked"
+	case row.Bare:
+		return "bare"
+	case row.Prunable || row.Status == worktree.StatusPrunable:
+		return "prunable"
+	case row.Detached || row.Status == worktree.StatusDetached:
+		return "detached"
+	case row.Branch == "main" || row.Branch == "master" || row.Status == worktree.StatusBase:
+		return "main/master"
+	case row.Status == worktree.StatusUnknown:
+		return "no base"
+	default:
+		return "protected"
+	}
 }
 
 func (m Model) confirmationView() string {
@@ -486,6 +516,7 @@ func rowMatches(row worktree.Entry, filter string) bool {
 		row.DisplayName,
 		row.Branch,
 		string(row.Status),
+		statusLabel(row),
 		row.LastCommitTitle,
 		row.Error,
 	}
