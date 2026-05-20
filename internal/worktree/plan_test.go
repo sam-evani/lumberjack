@@ -67,8 +67,8 @@ func TestPlanDeletionNormalSkipsDirtyAndProtectedSelectedRows(t *testing.T) {
 		t.Fatalf("RemoveWorktrees = %#v, want none", got.RemoveWorktrees)
 	}
 	wantSkipped := []SkippedAction{
-		{Entry: entries[0], Reason: "dirty; use force delete"},
-		{Entry: entries[1], Reason: "protected"},
+		{Entry: entries[0], Reason: "dirty; press D to force delete"},
+		{Entry: entries[1], Reason: "protected: main/master"},
 	}
 	if !reflect.DeepEqual(got.Skipped, wantSkipped) {
 		t.Fatalf("Skipped = %#v, want %#v", got.Skipped, wantSkipped)
@@ -156,8 +156,8 @@ func TestPlanDeletionProtectedLockedAndBareRowsAreSkippedAsProtected(t *testing.
 	got := PlanDeletion(entries, selected(entries...), DeleteForce)
 
 	wantSkipped := []SkippedAction{
-		{Entry: entries[0], Reason: "protected"},
-		{Entry: entries[1], Reason: "protected"},
+		{Entry: entries[0], Reason: "protected: locked"},
+		{Entry: entries[1], Reason: "protected: bare"},
 	}
 	if !reflect.DeepEqual(got.Skipped, wantSkipped) {
 		t.Fatalf("Skipped = %#v, want %#v", got.Skipped, wantSkipped)

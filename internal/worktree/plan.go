@@ -38,7 +38,7 @@ func PlanDeletion(entries []Entry, selected map[string]bool, mode DeleteMode) De
 			continue
 		}
 		if entry.Protected {
-			plan.Skipped = append(plan.Skipped, SkippedAction{Entry: entry, Reason: "protected"})
+			plan.Skipped = append(plan.Skipped, SkippedAction{Entry: entry, Reason: "protected: " + ProtectionReason(entry)})
 			continue
 		}
 		if entry.Status == StatusDetached || entry.Status == StatusUnknown || entry.Status == StatusPrunable {
@@ -46,7 +46,7 @@ func PlanDeletion(entries []Entry, selected map[string]bool, mode DeleteMode) De
 			continue
 		}
 		if entry.Dirty && mode == DeleteNormal {
-			plan.Skipped = append(plan.Skipped, SkippedAction{Entry: entry, Reason: "dirty; use force delete"})
+			plan.Skipped = append(plan.Skipped, SkippedAction{Entry: entry, Reason: "dirty; press D to force delete"})
 			continue
 		}
 
@@ -67,4 +67,27 @@ func PlanDeletion(entries []Entry, selected map[string]bool, mode DeleteMode) De
 		}
 	}
 	return plan
+}
+
+func ProtectionReason(entry Entry) string {
+	switch {
+	case entry.Error != "":
+		return "scan error"
+	case entry.Path == entry.RepoPath:
+		return "primary checkout"
+	case entry.Locked:
+		return "locked"
+	case entry.Bare:
+		return "bare"
+	case entry.Prunable || entry.Status == StatusPrunable:
+		return "prunable"
+	case entry.Detached || entry.Status == StatusDetached:
+		return "detached"
+	case entry.Branch == "main" || entry.Branch == "master" || entry.Status == StatusBase:
+		return "main/master"
+	case entry.Status == StatusUnknown:
+		return "no base ref"
+	default:
+		return "protected"
+	}
 }

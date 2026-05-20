@@ -25,6 +25,12 @@ type noopDeleter struct{}
 func (noopDeleter) RemoveWorktree(worktree.RemoveWorktreeAction) error { return nil }
 func (noopDeleter) DeleteBranch(worktree.BranchAction) error           { return nil }
 
+type deletionResultMsg struct {
+	removedPaths    map[string]bool
+	deletedBranches int
+	errors          []string
+}
+
 type sortMode int
 
 const (
@@ -108,6 +114,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.clampCursor()
+		return m, nil
+	case deletionResultMsg:
+		m.applyDeletionResult(msg)
 		return m, nil
 	case tea.KeyMsg:
 		if m.confirming {
@@ -243,9 +252,16 @@ func (m Model) updateConfirming(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case keyMatches(msg, keys.Cancel):
 		m.confirming = false
 		m.message = "delete canceled"
+	case keyMatches(msg, keys.ForceDelete) && !m.force:
+		m.beginConfirm(worktree.DeleteForce)
 	case keyMatches(msg, keys.Confirm):
 		m.confirming = false
-		m.executePendingDeletion()
+		if len(m.pending.RemoveWorktrees) == 0 && len(m.pending.DeleteBranches) == 0 {
+			m.message = fmt.Sprintf("nothing to delete; skipped %d worktree(s)", len(m.pending.Skipped))
+			return m, nil
+		}
+		m.message = fmt.Sprintf("deleting %d worktree(s), %d branch(es)...", len(m.pending.RemoveWorktrees), len(m.pending.DeleteBranches))
+		return m, deletePendingCmd(m.pending, m.rows, m.deleter)
 	}
 	return m, nil
 }
@@ -293,12 +309,24 @@ func (m *Model) beginConfirm(mode worktree.DeleteMode) {
 	m.message = ""
 }
 
-func (m *Model) executePendingDeletion() {
+func deletePendingCmd(plan worktree.DeletionPlan, rows []worktree.Entry, deleter Deleter) tea.Cmd {
+	rows = append([]worktree.Entry(nil), rows...)
+	return func() tea.Msg {
+		removedPaths, deletedBranches, errors := executeDeletion(plan, rows, deleter)
+		return deletionResultMsg{
+			removedPaths:    removedPaths,
+			deletedBranches: deletedBranches,
+			errors:          errors,
+		}
+	}
+}
+
+func executeDeletion(plan worktree.DeletionPlan, rows []worktree.Entry, deleter Deleter) (map[string]bool, int, []string) {
 	var errors []string
 	removedPaths := map[string]bool{}
 
-	for _, action := range m.pending.RemoveWorktrees {
-		if err := m.deleter.RemoveWorktree(action); err != nil {
+	for _, action := range plan.RemoveWorktrees {
+		if err := deleter.RemoveWorktree(action); err != nil {
 			errors = append(errors, fmt.Sprintf("remove %s: %v", action.Path, err))
 			continue
 		}
@@ -306,29 +334,33 @@ func (m *Model) executePendingDeletion() {
 	}
 
 	deletedBranches := 0
-	for _, action := range m.pending.DeleteBranches {
-		if !m.branchWorktreeRemoved(action, removedPaths) {
+	for _, action := range plan.DeleteBranches {
+		if !branchWorktreeRemoved(rows, action, removedPaths) {
 			continue
 		}
-		if err := m.deleter.DeleteBranch(action); err != nil {
+		if err := deleter.DeleteBranch(action); err != nil {
 			errors = append(errors, fmt.Sprintf("delete branch %s in %s: %v", action.Branch, action.RepoPath, err))
 			continue
 		}
 		deletedBranches++
 	}
 
-	if len(removedPaths) > 0 {
-		m.dropRemovedRows(removedPaths)
-	}
-	if len(errors) > 0 {
-		m.message = "errors: " + strings.Join(errors, "; ")
-		return
-	}
-	m.message = fmt.Sprintf("deleted %d worktree(s), %d branch(es)", len(removedPaths), deletedBranches)
+	return removedPaths, deletedBranches, errors
 }
 
-func (m Model) branchWorktreeRemoved(action worktree.BranchAction, removedPaths map[string]bool) bool {
-	for _, row := range m.rows {
+func (m *Model) applyDeletionResult(msg deletionResultMsg) {
+	if len(msg.removedPaths) > 0 {
+		m.dropRemovedRows(msg.removedPaths)
+	}
+	if len(msg.errors) > 0 {
+		m.message = "errors: " + strings.Join(msg.errors, "; ")
+		return
+	}
+	m.message = fmt.Sprintf("deleted %d worktree(s), %d branch(es)", len(msg.removedPaths), msg.deletedBranches)
+}
+
+func branchWorktreeRemoved(rows []worktree.Entry, action worktree.BranchAction, removedPaths map[string]bool) bool {
+	for _, row := range rows {
 		if row.RepoPath == action.RepoPath && row.Branch == action.Branch && removedPaths[row.Path] {
 			return true
 		}
@@ -424,7 +456,7 @@ func (m Model) bodyHeight() int {
 }
 
 func (m Model) header() string {
-	return fmt.Sprintf("%-3s %-28s %-16s %-18s %-22s %-5s %-10s %s", "del", "path", "repo", "branch", "status", "dirty", "age", "last commit")
+	return fmt.Sprintf("%-3s %-28s %-16s %-18s %-27s %-5s %-10s %s", "del", "path", "repo", "branch", "status", "dirty", "age", "last commit")
 }
 
 func (m Model) renderRow(index int) string {
@@ -433,53 +465,26 @@ func (m Model) renderRow(index int) string {
 	if m.selected[row.Path] {
 		selected = "[x]"
 	}
-	return fmt.Sprintf("%-3s %-28s %-16s %-18s %-22s %-5t %-10s %s",
+	return fmt.Sprintf("%-3s %-28s %-16s %-18s %-27s %-5t %-10s %s",
 		selected,
 		truncate(displayPath(row), 28),
 		truncate(row.RepoName, 16),
 		truncate(branch(row), 18),
-		truncate(statusLabel(row), 22),
+		truncate(statusLabel(row), 27),
 		row.Dirty,
 		truncate(age(row.LastCommitTime), 10),
-		truncate(row.LastCommitTitle, max(20, m.width-112)),
+		truncate(row.LastCommitTitle, max(20, m.width-117)),
 	)
 }
 
 func statusLabel(row worktree.Entry) string {
 	if row.Protected {
-		reason := protectedReason(row)
-		if reason == "" {
-			return "protected"
-		}
-		return "protected: " + reason
+		return "protected: " + worktree.ProtectionReason(row)
 	}
 	if row.Error != "" {
 		return "error"
 	}
 	return string(row.Status)
-}
-
-func protectedReason(row worktree.Entry) string {
-	switch {
-	case row.Error != "":
-		return "error"
-	case row.Path == row.RepoPath:
-		return "primary"
-	case row.Locked:
-		return "locked"
-	case row.Bare:
-		return "bare"
-	case row.Prunable || row.Status == worktree.StatusPrunable:
-		return "prunable"
-	case row.Detached || row.Status == worktree.StatusDetached:
-		return "detached"
-	case row.Branch == "main" || row.Branch == "master" || row.Status == worktree.StatusBase:
-		return "main/master"
-	case row.Status == worktree.StatusUnknown:
-		return "no base"
-	default:
-		return "protected"
-	}
 }
 
 func (m Model) confirmationView() string {
@@ -505,8 +510,21 @@ func (m Model) confirmationView() string {
 	for _, skipped := range m.pending.Skipped {
 		fmt.Fprintf(&b, "skip %s: %s\n", skipped.Entry.Path, skipped.Reason)
 	}
-	fmt.Fprintf(&b, "\n%s", styles.muted.Render("enter/y delete  esc/n cancel  q quit"))
+	footer := "enter/y delete  esc/n cancel  q quit"
+	if !m.force && hasDirtySkipped(m.pending) {
+		footer = "enter/y delete  D force delete selected  esc/n cancel  q quit"
+	}
+	fmt.Fprintf(&b, "\n%s", styles.muted.Render(footer))
 	return b.String()
+}
+
+func hasDirtySkipped(plan worktree.DeletionPlan) bool {
+	for _, skipped := range plan.Skipped {
+		if skipped.Entry.Dirty {
+			return true
+		}
+	}
+	return false
 }
 
 func rowMatches(row worktree.Entry, filter string) bool {

@@ -63,9 +63,9 @@ func TestViewShowsProtectedReason(t *testing.T) {
 
 	view := model.View()
 	for _, want := range []string{
-		"protected: primary",
-		"protected: error",
-		"protected: no base",
+		"protected: primary checkout",
+		"protected: scan error",
+		"protected: no base ref",
 		"protected: main/master",
 	} {
 		if !strings.Contains(view, want) {
@@ -172,6 +172,59 @@ func TestConfirmationDisclosesPendingBranchActions(t *testing.T) {
 	}
 }
 
+func TestConfirmationShowsProtectedSkipReason(t *testing.T) {
+	rows := []worktree.Entry{
+		rowWith("repo", "/repo", worktree.StatusUnknown, func(entry *worktree.Entry) {
+			entry.RepoPath = "/repo"
+			entry.Protected = true
+		}),
+	}
+	model := NewModel(rows)
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeySpace})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	model = updated.(Model)
+
+	view := model.View()
+	if !strings.Contains(view, "skip /repo: protected: primary checkout") {
+		t.Fatalf("View() missing protected reason:\n%s", view)
+	}
+}
+
+func TestNormalConfirmationCanSwitchToForceDelete(t *testing.T) {
+	rows := []worktree.Entry{
+		rowWith("repo", "/repo/.worktrees/dirty", worktree.StatusMerged, func(entry *worktree.Entry) {
+			entry.Dirty = true
+		}),
+	}
+	model := NewModel(rows)
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeySpace})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	model = updated.(Model)
+
+	normalView := model.View()
+	if !strings.Contains(normalView, "skip /repo/.worktrees/dirty: dirty; press D to force delete") {
+		t.Fatalf("normal confirmation missing dirty force prompt:\n%s", normalView)
+	}
+	if !strings.Contains(normalView, "D force delete selected") {
+		t.Fatalf("normal confirmation missing force footer:\n%s", normalView)
+	}
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("D")})
+	model = updated.(Model)
+
+	forceView := model.View()
+	if !strings.Contains(forceView, "Confirm force delete") {
+		t.Fatalf("force confirmation missing title:\n%s", forceView)
+	}
+	if !strings.Contains(forceView, "remove /repo/.worktrees/dirty") {
+		t.Fatalf("force confirmation missing dirty removal:\n%s", forceView)
+	}
+}
+
 func TestConfirmationFooterUsesDeletionWording(t *testing.T) {
 	model := NewModel([]worktree.Entry{row("repo", "/repo/.worktrees/feature", worktree.StatusMerged)})
 
@@ -209,6 +262,33 @@ func TestConfirmationForceFooterUsesDeletionWording(t *testing.T) {
 	}
 }
 
+func TestConfirmDeletionShowsDeletingMessageBeforeCommandRuns(t *testing.T) {
+	rows := []worktree.Entry{
+		rowWith("repo", "/repo/.worktrees/merged", worktree.StatusMerged, func(entry *worktree.Entry) {
+			entry.Branch = "sam-evani/merged"
+		}),
+	}
+	deleter := &fakeDeleter{}
+	model := NewModelWithDeleter(rows, deleter)
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeySpace})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	model = updated.(Model)
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	if cmd == nil {
+		t.Fatal("confirm returned nil command, want delete command")
+	}
+	if len(deleter.removed) != 0 {
+		t.Fatalf("removed before running command = %#v, want none", deleter.removed)
+	}
+	if got := model.Message(); got != "deleting 1 worktree(s), 1 branch(es)..." {
+		t.Fatalf("Message() = %q, want deleting message", got)
+	}
+}
+
 func TestConfirmDeletionRemovesMergedWorktreeAndBranch(t *testing.T) {
 	rows := []worktree.Entry{
 		rowWith("repo", "/repo/.worktrees/merged", worktree.StatusMerged, func(entry *worktree.Entry) {
@@ -222,7 +302,9 @@ func TestConfirmDeletionRemovesMergedWorktreeAndBranch(t *testing.T) {
 	model = updated.(Model)
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
 	model = updated.(Model)
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	updated, _ = model.Update(cmd())
 	model = updated.(Model)
 
 	wantRemove := []worktree.RemoveWorktreeAction{{RepoPath: "/repo", Path: "/repo/.worktrees/merged"}}
@@ -254,7 +336,9 @@ func TestConfirmDeletionFailureLeavesRowAndDoesNotDeleteBranch(t *testing.T) {
 	model = updated.(Model)
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
 	model = updated.(Model)
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	updated, _ = model.Update(cmd())
 	model = updated.(Model)
 
 	if len(model.rows) != 1 {
@@ -281,7 +365,9 @@ func TestConfirmDeletionKeepsUnmergedBranch(t *testing.T) {
 	model = updated.(Model)
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
 	model = updated.(Model)
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	updated, _ = model.Update(cmd())
 	model = updated.(Model)
 
 	wantRemove := []worktree.RemoveWorktreeAction{{RepoPath: "/repo", Path: "/repo/.worktrees/unmerged"}}

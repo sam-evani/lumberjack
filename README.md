@@ -64,6 +64,7 @@ repo	path	branch	status	dirty	age_seconds	last_commit	protected	error
 - Delete actions only operate on manually selected rows.
 - Normal delete skips dirty worktrees.
 - Force delete is a separate action for dirty worktrees.
+- When normal delete skips selected dirty worktrees, press `D` from the confirmation screen to switch to force delete for the same selection.
 - Merged branches are deleted after their worktree is removed.
 - Branch deletion only runs after the matching worktree removal succeeds.
 - Unmerged branches are kept.
