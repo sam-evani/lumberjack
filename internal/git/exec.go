@@ -19,9 +19,6 @@ func NewExec(dir string) *Exec {
 
 func (g *Exec) FetchAllPrune() error {
 	_, err := g.run(g.dir, "fetch", "--all", "--prune", "-q")
-	if err == nil || isNoRemoteFetchError(err) {
-		return nil
-	}
 	return err
 }
 
@@ -133,15 +130,4 @@ func exitCode(err error) int {
 		return exitErr.ExitCode()
 	}
 	return -1
-}
-
-func isNoRemoteFetchError(err error) bool {
-	var cmdErr commandError
-	if !errors.As(err, &cmdErr) {
-		return false
-	}
-	out := string(cmdErr.output)
-	return strings.Contains(out, "No remote repository specified") ||
-		strings.Contains(out, "does not appear to be a git repository") ||
-		strings.Contains(out, "Could not read from remote repository")
 }

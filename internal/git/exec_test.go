@@ -4,8 +4,39 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestExecFetchAllPrune(t *testing.T) {
+	t.Run("succeeds with no remotes", func(t *testing.T) {
+		repo := newTempRepo(t)
+		commitFile(t, repo, "README.md", "initial\n", "initial commit")
+
+		g := NewExec(repo)
+		if err := g.FetchAllPrune(); err != nil {
+			t.Fatalf("FetchAllPrune returned error: %v", err)
+		}
+	})
+
+	t.Run("returns error for broken origin", func(t *testing.T) {
+		repo := newTempRepo(t)
+		commitFile(t, repo, "README.md", "initial\n", "initial commit")
+
+		missingRemote := filepath.Join(t.TempDir(), "missing.git")
+		runGit(t, repo, "remote", "add", "origin", missingRemote)
+
+		g := NewExec(repo)
+		err := g.FetchAllPrune()
+		if err == nil {
+			t.Fatalf("FetchAllPrune returned nil error, want broken remote error")
+		}
+		if got := err.Error(); !strings.Contains(got, "git [fetch --all --prune -q] failed") &&
+			!strings.Contains(got, "does not appear to be a git repository") {
+			t.Fatalf("FetchAllPrune error = %q, want git fetch command or missing repo output", got)
+		}
+	})
+}
 
 func TestExecWorktreeListPorcelainAndIsDirty(t *testing.T) {
 	repo := newTempRepo(t)
