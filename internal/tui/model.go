@@ -363,6 +363,12 @@ func (m Model) confirmationView() string {
 	for _, action := range m.pending.RemoveWorktrees {
 		fmt.Fprintf(&b, "remove %s\n", action.Path)
 	}
+	for _, action := range m.pending.DeleteBranches {
+		fmt.Fprintf(&b, "delete branch %s in %s\n", action.Branch, action.RepoPath)
+	}
+	for _, action := range m.pending.KeepBranches {
+		fmt.Fprintf(&b, "keep branch %s in %s\n", action.Branch, action.RepoPath)
+	}
 	for _, skipped := range m.pending.Skipped {
 		fmt.Fprintf(&b, "skip %s: %s\n", skipped.Entry.Path, skipped.Reason)
 	}

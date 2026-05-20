@@ -2,6 +2,7 @@ package tui
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -73,6 +74,31 @@ func TestForceDeleteWithNoSelectionShowsMessageAndDoesNotConfirm(t *testing.T) {
 	}
 	if model.Confirming() {
 		t.Fatal("Confirming() = true, want false")
+	}
+}
+
+func TestConfirmationDisclosesPendingBranchActions(t *testing.T) {
+	rows := []worktree.Entry{
+		rowWith("repo", "/repo/.worktrees/merged", worktree.StatusMerged, func(entry *worktree.Entry) {
+			entry.Branch = "sam-evani/merged"
+		}),
+		rowWith("repo", "/repo/.worktrees/unmerged", worktree.StatusUnmerged, func(entry *worktree.Entry) {
+			entry.Branch = "sam-evani/unmerged"
+		}),
+	}
+	model := NewModel(rows)
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	model = updated.(Model)
+
+	view := model.View()
+	if !strings.Contains(view, "delete branch sam-evani/merged") {
+		t.Fatalf("View() missing delete branch disclosure:\n%s", view)
+	}
+	if !strings.Contains(view, "keep branch sam-evani/unmerged") {
+		t.Fatalf("View() missing keep branch disclosure:\n%s", view)
 	}
 }
 
