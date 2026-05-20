@@ -447,7 +447,7 @@ func (m Model) confirmationView() string {
 	for _, skipped := range m.pending.Skipped {
 		fmt.Fprintf(&b, "skip %s: %s\n", skipped.Entry.Path, skipped.Reason)
 	}
-	fmt.Fprintf(&b, "\n%s", styles.muted.Render("enter/y preview only  esc/n cancel  q quit"))
+	fmt.Fprintf(&b, "\n%s", styles.muted.Render("enter/y delete  esc/n cancel  q quit"))
 	return b.String()
 }
 

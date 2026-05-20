@@ -103,6 +103,43 @@ func TestConfirmationDisclosesPendingBranchActions(t *testing.T) {
 	}
 }
 
+func TestConfirmationFooterUsesDeletionWording(t *testing.T) {
+	model := NewModel([]worktree.Entry{row("repo", "/repo/.worktrees/feature", worktree.StatusMerged)})
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeySpace})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	model = updated.(Model)
+
+	view := model.View()
+	if strings.Contains(view, "preview only") {
+		t.Fatalf("View() contains preview-only wording:\n%s", view)
+	}
+	if !strings.Contains(view, "enter/y delete") {
+		t.Fatalf("View() missing deletion confirmation wording:\n%s", view)
+	}
+}
+
+func TestConfirmationForceFooterUsesDeletionWording(t *testing.T) {
+	model := NewModel([]worktree.Entry{row("repo", "/repo/.worktrees/feature", worktree.StatusMerged)})
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeySpace})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("D")})
+	model = updated.(Model)
+
+	view := model.View()
+	if !strings.Contains(view, "Confirm force delete") {
+		t.Fatalf("View() missing force confirmation title:\n%s", view)
+	}
+	if strings.Contains(view, "preview only") {
+		t.Fatalf("View() contains preview-only wording:\n%s", view)
+	}
+	if !strings.Contains(view, "enter/y delete") {
+		t.Fatalf("View() missing deletion confirmation wording:\n%s", view)
+	}
+}
+
 func TestConfirmDeletionRemovesMergedWorktreeAndBranch(t *testing.T) {
 	rows := []worktree.Entry{
 		rowWith("repo", "/repo/.worktrees/merged", worktree.StatusMerged, func(entry *worktree.Entry) {
