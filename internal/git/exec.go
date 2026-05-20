@@ -13,13 +13,11 @@ type Exec struct {
 	dir string
 }
 
+// Keep squash detection bounded; exact per-commit matches are handled by git cherry first.
+const squashPatchScanLimit = 100
+
 func NewExec(dir string) *Exec {
 	return &Exec{dir: dir}
-}
-
-func (g *Exec) FetchAllPrune() error {
-	_, err := g.run(g.dir, "fetch", "--all", "--prune", "-q")
-	return err
 }
 
 func (g *Exec) WorktreeListPorcelain() ([]byte, error) {
@@ -44,16 +42,124 @@ func (g *Exec) AvailableBaseRefs(candidates []string) ([]string, error) {
 
 func (g *Exec) MergedIntoAny(branch string, baseRefs []string) (bool, error) {
 	for _, base := range baseRefs {
-		_, err := g.run(g.dir, "merge-base", "--is-ancestor", branch, base)
-		if err == nil {
+		merged, err := g.isAncestor(branch, base)
+		if err != nil {
+			return false, err
+		}
+		if merged {
 			return true, nil
 		}
-		if exitCode(err) == 1 {
-			continue
+
+		merged, err = g.hasEquivalentPatches(branch, base)
+		if err != nil {
+			return false, err
 		}
-		return false, err
+		if merged {
+			return true, nil
+		}
 	}
 	return false, nil
+}
+
+func (g *Exec) isAncestor(branch string, base string) (bool, error) {
+	_, err := g.run(g.dir, "merge-base", "--is-ancestor", branch, base)
+	if err == nil {
+		return true, nil
+	}
+	if exitCode(err) == 1 {
+		return false, nil
+	}
+	return false, err
+}
+
+func (g *Exec) hasEquivalentPatches(branch string, base string) (bool, error) {
+	merged, err := g.allBranchCommitsHaveEquivalentPatch(branch, base)
+	if err != nil || merged {
+		return merged, err
+	}
+	return g.branchDiffMatchesBaseCommit(branch, base)
+}
+
+func (g *Exec) allBranchCommitsHaveEquivalentPatch(branch string, base string) (bool, error) {
+	out, err := g.run(g.dir, "cherry", base, branch)
+	if err != nil {
+		return false, err
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "+") {
+			return false, nil
+		}
+		if !strings.HasPrefix(line, "-") {
+			return false, fmt.Errorf("parse git cherry output line %q", line)
+		}
+	}
+	return true, nil
+}
+
+func (g *Exec) branchDiffMatchesBaseCommit(branch string, base string) (bool, error) {
+	out, err := g.run(g.dir, "merge-base", branch, base)
+	if err != nil {
+		return false, err
+	}
+	mergeBase := strings.TrimSpace(string(out))
+	if mergeBase == "" {
+		return false, fmt.Errorf("merge-base %s %s returned empty output", branch, base)
+	}
+
+	diff, err := g.run(g.dir, "diff", mergeBase, branch)
+	if err != nil {
+		return false, err
+	}
+	branchPatchID, ok, err := g.patchID(diff)
+	if err != nil || !ok {
+		return ok, err
+	}
+
+	out, err = g.run(g.dir, "log", "--first-parent", "--max-count="+strconv.Itoa(squashPatchScanLimit), "--format=medium", "--patch", mergeBase+".."+base)
+	if err != nil {
+		return false, err
+	}
+	basePatchIDs, err := g.patchIDs(out)
+	if err != nil {
+		return false, err
+	}
+	return basePatchIDs[branchPatchID], nil
+}
+
+func (g *Exec) patchID(patch []byte) (string, bool, error) {
+	patchIDs, err := g.patchIDs(patch)
+	if err != nil {
+		return "", false, err
+	}
+	for patchID := range patchIDs {
+		return patchID, true, nil
+	}
+	return "", false, nil
+}
+
+func (g *Exec) patchIDs(patch []byte) (map[string]bool, error) {
+	patchIDs := map[string]bool{}
+	if len(bytes.TrimSpace(patch)) == 0 {
+		return patchIDs, nil
+	}
+	cmd := exec.Command("git", "patch-id", "--stable")
+	cmd.Dir = g.dir
+	cmd.Stdin = bytes.NewReader(patch)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, commandError{args: []string{"patch-id", "--stable"}, output: out, err: err}
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		patchIDs[fields[0]] = true
+	}
+	return patchIDs, nil
 }
 
 func (g *Exec) IsDirty(worktreePath string) (bool, error) {
@@ -92,7 +198,7 @@ func (g *Exec) RemoveWorktree(path string, force bool) error {
 }
 
 func (g *Exec) DeleteBranch(branch string) error {
-	_, err := g.run(g.dir, "branch", "-d", branch)
+	_, err := g.run(g.dir, "branch", "-D", branch)
 	return err
 }
 

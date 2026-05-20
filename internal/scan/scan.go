@@ -54,8 +54,6 @@ func hasGitDir(repoPath string) bool {
 }
 
 func scanRepo(repoPath string, repoName string, git Git) []worktree.Entry {
-	fetchErr := git.FetchAllPrune()
-
 	out, err := git.WorktreeListPorcelain()
 	if err != nil {
 		return []worktree.Entry{errorRow(repoPath, repoName, err)}
@@ -72,7 +70,6 @@ func scanRepo(repoPath string, repoName string, git Git) []worktree.Entry {
 	for _, entry := range entries {
 		entry.RepoName = repoName
 		entry.RepoPath = repoPath
-		setErrorIfEmpty(&entry, fetchErr)
 		setErrorIfEmpty(&entry, baseErr)
 
 		if shouldInspect(entry) {

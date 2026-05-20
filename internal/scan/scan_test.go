@@ -212,20 +212,18 @@ func TestRootClassifiesUnmergedFeatureWithBaseRefs(t *testing.T) {
 	}
 }
 
-func TestRootRecordsFetchAndMergeErrorsWithoutAborting(t *testing.T) {
+func TestRootRecordsMergeErrorsWithoutAborting(t *testing.T) {
 	root := t.TempDir()
-	fetchRepo := makeRepo(t, root, "fetch-repo")
+	mergedRepo := makeRepo(t, root, "merged-repo")
 	mergeRepo := makeRepo(t, root, "merge-repo")
-	fetchPath := filepath.Join(fetchRepo, ".worktrees", "feature")
+	mergedPath := filepath.Join(mergedRepo, ".worktrees", "feature")
 	mergePath := filepath.Join(mergeRepo, ".worktrees", "feature")
 
-	fetchErr := errors.New("fetch failed")
 	mergeErr := errors.New("merge-base failed")
 	gits := map[string]*fakeGit{
-		fetchRepo: {
-			fetchErr: fetchErr,
+		mergedRepo: {
 			porcelain: porcelain(
-				"worktree "+fetchPath,
+				"worktree "+mergedPath,
 				"HEAD abc123",
 				"branch refs/heads/feature",
 			),
@@ -250,16 +248,30 @@ func TestRootRecordsFetchAndMergeErrorsWithoutAborting(t *testing.T) {
 	if len(rows) != 2 {
 		t.Fatalf("len(rows) = %d, want 2", len(rows))
 	}
-	for _, row := range rows {
-		if row.Error == "" {
-			t.Fatalf("%s Error is empty, want scan error", row.RepoName)
-		}
-		if row.Status != worktree.StatusUnknown {
-			t.Fatalf("%s Status = %q, want %q", row.RepoName, row.Status, worktree.StatusUnknown)
-		}
-		if !row.Protected {
-			t.Fatalf("%s Protected = false, want true", row.RepoName)
-		}
+	if rows[0].RepoName != "merge-repo" {
+		t.Fatalf("first RepoName = %q, want merge-repo", rows[0].RepoName)
+	}
+	if rows[0].Error == "" {
+		t.Fatalf("merge-repo Error is empty, want scan error")
+	}
+	if rows[0].Status != worktree.StatusUnknown {
+		t.Fatalf("merge-repo Status = %q, want %q", rows[0].Status, worktree.StatusUnknown)
+	}
+	if !rows[0].Protected {
+		t.Fatalf("merge-repo Protected = false, want true")
+	}
+
+	if rows[1].RepoName != "merged-repo" {
+		t.Fatalf("second RepoName = %q, want merged-repo", rows[1].RepoName)
+	}
+	if rows[1].Error != "" {
+		t.Fatalf("merged-repo Error = %q, want empty", rows[1].Error)
+	}
+	if rows[1].Status != worktree.StatusMerged {
+		t.Fatalf("merged-repo Status = %q, want %q", rows[1].Status, worktree.StatusMerged)
+	}
+	if rows[1].Protected {
+		t.Fatalf("merged-repo Protected = true, want false")
 	}
 }
 
@@ -307,7 +319,6 @@ func TestRootKeepsLockedAndBareEntriesProtected(t *testing.T) {
 }
 
 type fakeGit struct {
-	fetchErr  error
 	listErr   error
 	baseErr   error
 	porcelain []byte
@@ -328,10 +339,6 @@ type fakeCommit struct {
 	unix    int64
 	subject string
 	err     error
-}
-
-func (g *fakeGit) FetchAllPrune() error {
-	return g.fetchErr
 }
 
 func (g *fakeGit) WorktreeListPorcelain() ([]byte, error) {

@@ -1,7 +1,6 @@
 package git
 
 type Git interface {
-	FetchAllPrune() error
 	WorktreeListPorcelain() ([]byte, error)
 	AvailableBaseRefs(candidates []string) ([]string, error)
 	MergedIntoAny(branch string, baseRefs []string) (bool, error)

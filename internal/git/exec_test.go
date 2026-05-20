@@ -4,39 +4,8 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
-
-func TestExecFetchAllPrune(t *testing.T) {
-	t.Run("succeeds with no remotes", func(t *testing.T) {
-		repo := newTempRepo(t)
-		commitFile(t, repo, "README.md", "initial\n", "initial commit")
-
-		g := NewExec(repo)
-		if err := g.FetchAllPrune(); err != nil {
-			t.Fatalf("FetchAllPrune returned error: %v", err)
-		}
-	})
-
-	t.Run("returns error for broken origin", func(t *testing.T) {
-		repo := newTempRepo(t)
-		commitFile(t, repo, "README.md", "initial\n", "initial commit")
-
-		missingRemote := filepath.Join(t.TempDir(), "missing.git")
-		runGit(t, repo, "remote", "add", "origin", missingRemote)
-
-		g := NewExec(repo)
-		err := g.FetchAllPrune()
-		if err == nil {
-			t.Fatalf("FetchAllPrune returned nil error, want broken remote error")
-		}
-		if got := err.Error(); !strings.Contains(got, "git [fetch --all --prune -q] failed") &&
-			!strings.Contains(got, "does not appear to be a git repository") {
-			t.Fatalf("FetchAllPrune error = %q, want git fetch command or missing repo output", got)
-		}
-	})
-}
 
 func TestExecWorktreeListPorcelainAndIsDirty(t *testing.T) {
 	repo := newTempRepo(t)
@@ -94,6 +63,50 @@ func TestExecAvailableBaseRefsAndMergedIntoAny(t *testing.T) {
 	}
 }
 
+func TestExecMergedIntoAnyDetectsPatchEquivalentCommit(t *testing.T) {
+	repo := newTempRepo(t)
+	commitFile(t, repo, "README.md", "initial\n", "initial commit")
+
+	runGit(t, repo, "checkout", "-b", "feature")
+	commitFile(t, repo, "feature.txt", "feature\n", "feature change")
+
+	runGit(t, repo, "checkout", "main")
+	commitFile(t, repo, "feature.txt", "feature\n", "squash feature")
+
+	g := NewExec(repo)
+	merged, err := g.MergedIntoAny("feature", []string{"main"})
+	if err != nil {
+		t.Fatalf("MergedIntoAny returned error: %v", err)
+	}
+	if !merged {
+		t.Fatalf("MergedIntoAny(feature, [main]) = false, want true")
+	}
+}
+
+func TestExecMergedIntoAnyDetectsPatchEquivalentSquash(t *testing.T) {
+	repo := newTempRepo(t)
+	commitFile(t, repo, "README.md", "initial\n", "initial commit")
+
+	runGit(t, repo, "checkout", "-b", "feature")
+	commitFile(t, repo, "one.txt", "one\n", "first feature change")
+	commitFile(t, repo, "two.txt", "two\n", "second feature change")
+
+	runGit(t, repo, "checkout", "main")
+	writeFile(t, repo, "one.txt", "one\n")
+	writeFile(t, repo, "two.txt", "two\n")
+	runGit(t, repo, "add", "one.txt", "two.txt")
+	runGit(t, repo, "commit", "-m", "squash feature")
+
+	g := NewExec(repo)
+	merged, err := g.MergedIntoAny("feature", []string{"main"})
+	if err != nil {
+		t.Fatalf("MergedIntoAny returned error: %v", err)
+	}
+	if !merged {
+		t.Fatalf("MergedIntoAny(feature, [main]) = false, want true")
+	}
+}
+
 func TestExecLastCommitReturnsUnixSecondsAndSubject(t *testing.T) {
 	repo := newTempRepo(t)
 	commitFileAt(t, repo, "README.md", "initial\n", "known subject", "1700000000")
@@ -137,5 +150,24 @@ func TestExecRemoveWorktreeAndDeleteBranch(t *testing.T) {
 	}
 	if out := runGit(t, repo, "branch", "--list", "cleanup"); len(bytes.TrimSpace(out)) != 0 {
 		t.Fatalf("branch cleanup still exists:\n%s", out)
+	}
+}
+
+func TestExecDeleteBranchDeletesPatchEquivalentBranch(t *testing.T) {
+	repo := newTempRepo(t)
+	commitFile(t, repo, "README.md", "initial\n", "initial commit")
+
+	runGit(t, repo, "checkout", "-b", "feature")
+	commitFile(t, repo, "feature.txt", "feature\n", "feature change")
+
+	runGit(t, repo, "checkout", "main")
+	commitFile(t, repo, "feature.txt", "feature\n", "squash feature")
+
+	g := NewExec(repo)
+	if err := g.DeleteBranch("feature"); err != nil {
+		t.Fatalf("DeleteBranch returned error: %v", err)
+	}
+	if out := runGit(t, repo, "branch", "--list", "feature"); len(bytes.TrimSpace(out)) != 0 {
+		t.Fatalf("branch feature still exists:\n%s", out)
 	}
 }
