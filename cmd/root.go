@@ -16,8 +16,8 @@ var rootPath string
 
 var (
 	rootRows = scan.Default
-	runTUI   = func(rows []worktree.Entry, deleter tui.Deleter) error {
-		_, err := tea.NewProgram(tui.NewModelWithDeleter(rows, deleter), tea.WithAltScreen()).Run()
+	runTUI   = func(rows []worktree.Entry, deleter tui.Deleter, refresh tui.RefreshFunc) error {
+		_, err := tea.NewProgram(tui.NewModelWithOptions(rows, deleter, refresh), tea.WithAltScreen()).Run()
 		return err
 	}
 )
@@ -30,11 +30,15 @@ var rootCmd = &cobra.Command{
 	SilenceErrors: true,
 	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		rows, err := rootRows(rootPath)
+		requestedRoot := rootPath
+		rows, err := rootRows(requestedRoot)
 		if err != nil {
 			return err
 		}
-		return runTUI(rows, tui.GitDeleter{})
+		refresh := func() ([]worktree.Entry, error) {
+			return rootRows(requestedRoot)
+		}
+		return runTUI(rows, tui.GitDeleter{}, refresh)
 	},
 }
 

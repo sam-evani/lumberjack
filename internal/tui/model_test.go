@@ -227,6 +227,66 @@ func TestConfirmDeletionKeepsUnmergedBranch(t *testing.T) {
 	}
 }
 
+func TestRefreshReplacesRowsAndClearsSelection(t *testing.T) {
+	oldRow := row("repo", "/repo/.worktrees/old", worktree.StatusMerged)
+	newRow := row("repo", "/repo/.worktrees/new", worktree.StatusMerged)
+	model := NewModelWithOptions([]worktree.Entry{oldRow}, noopDeleter{}, func() ([]worktree.Entry, error) {
+		return []worktree.Entry{newRow}, nil
+	})
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeySpace})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	model = updated.(Model)
+
+	if !reflect.DeepEqual(model.rows, []worktree.Entry{newRow}) {
+		t.Fatalf("rows = %#v, want new row", model.rows)
+	}
+	if len(model.visible) != 1 || model.visible[0] != 0 {
+		t.Fatalf("visible = %#v, want [0]", model.visible)
+	}
+	if got := model.SelectedPaths(); len(got) != 0 {
+		t.Fatalf("SelectedPaths() = %#v, want empty", got)
+	}
+	if got := model.Message(); got != "refreshed 1 worktree(s)" {
+		t.Fatalf("Message() = %q, want refreshed message", got)
+	}
+}
+
+func TestRefreshUnavailableShowsMessage(t *testing.T) {
+	model := NewModel([]worktree.Entry{row("repo", "/repo/.worktrees/feature", worktree.StatusMerged)})
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	model = updated.(Model)
+
+	if got := model.Message(); got != "refresh is not available" {
+		t.Fatalf("Message() = %q, want unavailable message", got)
+	}
+}
+
+func TestRefreshFailureKeepsRowsAndSelection(t *testing.T) {
+	oldRow := row("repo", "/repo/.worktrees/old", worktree.StatusMerged)
+	model := NewModelWithOptions([]worktree.Entry{oldRow}, noopDeleter{}, func() ([]worktree.Entry, error) {
+		return nil, errors.New("scan failed")
+	})
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeySpace})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	model = updated.(Model)
+
+	if !reflect.DeepEqual(model.rows, []worktree.Entry{oldRow}) {
+		t.Fatalf("rows = %#v, want old row", model.rows)
+	}
+	wantSelection := []string{"/repo/.worktrees/old"}
+	if got := model.SelectedPaths(); !reflect.DeepEqual(got, wantSelection) {
+		t.Fatalf("SelectedPaths() = %#v, want %#v", got, wantSelection)
+	}
+	if got := model.Message(); !strings.HasPrefix(got, "refresh failed:") {
+		t.Fatalf("Message() = %q, want refresh failure prefix", got)
+	}
+}
+
 type fakeDeleter struct {
 	removed   []worktree.RemoveWorktreeAction
 	branches  []worktree.BranchAction

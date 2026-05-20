@@ -18,6 +18,8 @@ type Deleter interface {
 	DeleteBranch(action worktree.BranchAction) error
 }
 
+type RefreshFunc func() ([]worktree.Entry, error)
+
 type noopDeleter struct{}
 
 func (noopDeleter) RemoveWorktree(worktree.RemoveWorktreeAction) error { return nil }
@@ -51,6 +53,7 @@ type Model struct {
 	force      bool
 	pending    worktree.DeletionPlan
 	deleter    Deleter
+	refresh    RefreshFunc
 }
 
 func NewModel(rows []worktree.Entry) Model {
@@ -58,6 +61,10 @@ func NewModel(rows []worktree.Entry) Model {
 }
 
 func NewModelWithDeleter(rows []worktree.Entry, deleter Deleter) Model {
+	return NewModelWithOptions(rows, deleter, nil)
+}
+
+func NewModelWithOptions(rows []worktree.Entry, deleter Deleter, refresh RefreshFunc) Model {
 	if deleter == nil {
 		deleter = noopDeleter{}
 	}
@@ -67,6 +74,7 @@ func NewModelWithDeleter(rows []worktree.Entry, deleter Deleter) Model {
 		width:    120,
 		height:   24,
 		deleter:  deleter,
+		refresh:  refresh,
 	}
 	model.rebuildVisible()
 	return model
@@ -143,7 +151,7 @@ func (m Model) View() string {
 		fmt.Fprintf(&b, "%s\n", styles.muted.Render("no worktrees"))
 	}
 
-	fmt.Fprintf(&b, "%s", styles.muted.Render("space select  a select safe visible  c clear  / filter  s sort  d delete  D force  q quit"))
+	fmt.Fprintf(&b, "%s", styles.muted.Render("space select  a select safe visible  c clear  r refresh  / filter  s sort  d delete  D force  q quit"))
 	return b.String()
 }
 
@@ -170,6 +178,8 @@ func (m Model) updateTable(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case keyMatches(msg, keys.Clear):
 		m.selected = map[string]bool{}
 		m.message = "selection cleared"
+	case keyMatches(msg, keys.Refresh):
+		m.refreshRows()
 	case keyMatches(msg, keys.Filter):
 		m.filtering = true
 		m.message = ""
@@ -183,6 +193,24 @@ func (m Model) updateTable(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	m.clampCursor()
 	return m, nil
+}
+
+func (m *Model) refreshRows() {
+	if m.refresh == nil {
+		m.message = "refresh is not available"
+		return
+	}
+	rows, err := m.refresh()
+	if err != nil {
+		m.message = fmt.Sprintf("refresh failed: %v", err)
+		return
+	}
+	m.rows = append([]worktree.Entry(nil), rows...)
+	m.selected = map[string]bool{}
+	m.cursor = 0
+	m.offset = 0
+	m.rebuildVisible()
+	m.message = fmt.Sprintf("refreshed %d worktree(s)", len(m.rows))
 }
 
 func (m Model) updateFiltering(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

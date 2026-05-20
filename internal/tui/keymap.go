@@ -15,6 +15,7 @@ type keyMap struct {
 	Select      key.Binding
 	SelectAll   key.Binding
 	Clear       key.Binding
+	Refresh     key.Binding
 	Filter      key.Binding
 	Sort        key.Binding
 	Delete      key.Binding
@@ -34,6 +35,7 @@ var keys = keyMap{
 	Select:      key.NewBinding(key.WithKeys(" ", "space")),
 	SelectAll:   key.NewBinding(key.WithKeys("a")),
 	Clear:       key.NewBinding(key.WithKeys("c")),
+	Refresh:     key.NewBinding(key.WithKeys("r")),
 	Filter:      key.NewBinding(key.WithKeys("/", "f")),
 	Sort:        key.NewBinding(key.WithKeys("s")),
 	Delete:      key.NewBinding(key.WithKeys("d")),

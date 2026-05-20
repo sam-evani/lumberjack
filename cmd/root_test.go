@@ -86,14 +86,16 @@ func TestRootScansRequestedRootAndLaunchesTUIWithGitDeleter(t *testing.T) {
 	var scannedRoot string
 	var launchedRows []worktree.Entry
 	var launchedDeleter tui.Deleter
+	var launchedRefresh tui.RefreshFunc
 
 	rootRows = func(root string) ([]worktree.Entry, error) {
 		scannedRoot = root
 		return wantRows, nil
 	}
-	runTUI = func(rows []worktree.Entry, deleter tui.Deleter) error {
+	runTUI = func(rows []worktree.Entry, deleter tui.Deleter, refresh tui.RefreshFunc) error {
 		launchedRows = rows
 		launchedDeleter = deleter
+		launchedRefresh = refresh
 		return nil
 	}
 
@@ -115,6 +117,25 @@ func TestRootScansRequestedRootAndLaunchesTUIWithGitDeleter(t *testing.T) {
 	}
 	if _, ok := launchedDeleter.(tui.GitDeleter); !ok {
 		t.Fatalf("runTUI deleter = %T, want tui.GitDeleter", launchedDeleter)
+	}
+	if launchedRefresh == nil {
+		t.Fatal("runTUI refresh = nil, want refresh closure")
+	}
+
+	refreshedRows := []worktree.Entry{{RepoName: "repo", RepoPath: "/repo", Path: "/repo/.worktrees/refreshed"}}
+	rootRows = func(root string) ([]worktree.Entry, error) {
+		scannedRoot = root
+		return refreshedRows, nil
+	}
+	gotRows, err := launchedRefresh()
+	if err != nil {
+		t.Fatalf("refresh returned error: %v", err)
+	}
+	if scannedRoot != wantRoot {
+		t.Fatalf("refresh rootRows called with %q, want %q", scannedRoot, wantRoot)
+	}
+	if !reflect.DeepEqual(gotRows, refreshedRows) {
+		t.Fatalf("refresh rows = %#v, want %#v", gotRows, refreshedRows)
 	}
 }
 
