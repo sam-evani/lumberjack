@@ -43,3 +43,45 @@ func TestParsePorcelainParsesDetachedAndPrunable(t *testing.T) {
 		t.Fatalf("PrunableReason = %q", got[1].PrunableReason)
 	}
 }
+
+func TestParsePorcelainParsesLockedWorktrees(t *testing.T) {
+	input := []byte("worktree /tmp/locked-no-reason\nHEAD abc123\nbranch refs/heads/locked-no-reason\nlocked\n\nworktree /tmp/locked-with-reason\nHEAD def456\nbranch refs/heads/locked-with-reason\nlocked in use by deploy\n\n")
+
+	got, err := ParsePorcelain(input)
+	if err != nil {
+		t.Fatalf("ParsePorcelain returned error: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len(ParsePorcelain) = %d, want 2", len(got))
+	}
+	if !got[0].Locked {
+		t.Fatalf("first worktree Locked = false, want true")
+	}
+	if got[0].LockedReason != "" {
+		t.Fatalf("first LockedReason = %q, want empty", got[0].LockedReason)
+	}
+	if !got[1].Locked {
+		t.Fatalf("second worktree Locked = false, want true")
+	}
+	if got[1].LockedReason != "in use by deploy" {
+		t.Fatalf("second LockedReason = %q", got[1].LockedReason)
+	}
+}
+
+func TestParsePorcelainParsesKeyOnlyDetachedAndBare(t *testing.T) {
+	input := []byte("worktree /tmp/detached\nHEAD abc123\ndetached\n\nworktree /tmp/bare\nHEAD def456\nbranch refs/heads/main\nbare\n\n")
+
+	got, err := ParsePorcelain(input)
+	if err != nil {
+		t.Fatalf("ParsePorcelain returned error: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len(ParsePorcelain) = %d, want 2", len(got))
+	}
+	if !got[0].Detached {
+		t.Fatalf("first worktree Detached = false, want true")
+	}
+	if !got[1].Bare {
+		t.Fatalf("second worktree Bare = false, want true")
+	}
+}

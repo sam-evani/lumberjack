@@ -26,6 +26,9 @@ type Entry struct {
 	Branch          string
 	HeadSHA         string
 	Detached        bool
+	Locked          bool
+	LockedReason    string
+	Bare            bool
 	Prunable        bool
 	PrunableReason  string
 	Status          MergeStatus
@@ -62,7 +65,8 @@ func ParsePorcelain(out []byte) ([]Entry, error) {
 		}
 		key, value, ok := strings.Cut(line, " ")
 		if !ok {
-			continue
+			key = line
+			value = ""
 		}
 		switch key {
 		case "worktree":
@@ -73,6 +77,13 @@ func ParsePorcelain(out []byte) ([]Entry, error) {
 			current.HeadSHA = value
 		case "branch":
 			current.Branch = strings.TrimPrefix(value, "refs/heads/")
+		case "detached":
+			current.Detached = true
+		case "locked":
+			current.Locked = true
+			current.LockedReason = value
+		case "bare":
+			current.Bare = true
 		case "prunable":
 			current.Prunable = true
 			current.PrunableReason = value
