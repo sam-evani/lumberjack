@@ -48,3 +48,16 @@ func TestVersionRejectsArgs(t *testing.T) {
 		t.Fatalf("expected error to reject extra arg, got %v", err)
 	}
 }
+
+func TestHelpIncludesListCommand(t *testing.T) {
+	stdout, stderr, err := executeRootForTest("help")
+	if err != nil {
+		t.Fatalf("expected help to succeed, got %v", err)
+	}
+	if stderr != "" {
+		t.Fatalf("expected no stderr, got %q", stderr)
+	}
+	if !strings.Contains(stdout, "list") || !strings.Contains(stdout, "Print worktrees as TSV") {
+		t.Fatalf("expected help to include list command, got %q", stdout)
+	}
+}
