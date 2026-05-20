@@ -13,6 +13,16 @@ import (
 
 const noSelectionMessage = "select one or more worktrees first"
 
+type Deleter interface {
+	RemoveWorktree(action worktree.RemoveWorktreeAction) error
+	DeleteBranch(action worktree.BranchAction) error
+}
+
+type noopDeleter struct{}
+
+func (noopDeleter) RemoveWorktree(worktree.RemoveWorktreeAction) error { return nil }
+func (noopDeleter) DeleteBranch(worktree.BranchAction) error           { return nil }
+
 type sortMode int
 
 const (
@@ -40,14 +50,23 @@ type Model struct {
 	confirming bool
 	force      bool
 	pending    worktree.DeletionPlan
+	deleter    Deleter
 }
 
 func NewModel(rows []worktree.Entry) Model {
+	return NewModelWithDeleter(rows, noopDeleter{})
+}
+
+func NewModelWithDeleter(rows []worktree.Entry, deleter Deleter) Model {
+	if deleter == nil {
+		deleter = noopDeleter{}
+	}
 	model := Model{
 		rows:     append([]worktree.Entry(nil), rows...),
 		selected: map[string]bool{},
 		width:    120,
 		height:   24,
+		deleter:  deleter,
 	}
 	model.rebuildVisible()
 	return model
@@ -198,7 +217,7 @@ func (m Model) updateConfirming(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.message = "delete canceled"
 	case keyMatches(msg, keys.Confirm):
 		m.confirming = false
-		m.message = "delete execution is not implemented yet"
+		m.executePendingDeletion()
 	}
 	return m, nil
 }
@@ -244,6 +263,62 @@ func (m *Model) beginConfirm(mode worktree.DeleteMode) {
 	m.pending = worktree.PlanDeletion(m.rows, m.selected, mode)
 	m.confirming = true
 	m.message = ""
+}
+
+func (m *Model) executePendingDeletion() {
+	var errors []string
+	removedPaths := map[string]bool{}
+
+	for _, action := range m.pending.RemoveWorktrees {
+		if err := m.deleter.RemoveWorktree(action); err != nil {
+			errors = append(errors, fmt.Sprintf("remove %s: %v", action.Path, err))
+			continue
+		}
+		removedPaths[action.Path] = true
+	}
+
+	deletedBranches := 0
+	for _, action := range m.pending.DeleteBranches {
+		if !m.branchWorktreeRemoved(action, removedPaths) {
+			continue
+		}
+		if err := m.deleter.DeleteBranch(action); err != nil {
+			errors = append(errors, fmt.Sprintf("delete branch %s in %s: %v", action.Branch, action.RepoPath, err))
+			continue
+		}
+		deletedBranches++
+	}
+
+	if len(removedPaths) > 0 {
+		m.dropRemovedRows(removedPaths)
+	}
+	if len(errors) > 0 {
+		m.message = "errors: " + strings.Join(errors, "; ")
+		return
+	}
+	m.message = fmt.Sprintf("deleted %d worktree(s), %d branch(es)", len(removedPaths), deletedBranches)
+}
+
+func (m Model) branchWorktreeRemoved(action worktree.BranchAction, removedPaths map[string]bool) bool {
+	for _, row := range m.rows {
+		if row.RepoPath == action.RepoPath && row.Branch == action.Branch && removedPaths[row.Path] {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Model) dropRemovedRows(removedPaths map[string]bool) {
+	rows := m.rows[:0]
+	for _, row := range m.rows {
+		if removedPaths[row.Path] {
+			delete(m.selected, row.Path)
+			continue
+		}
+		rows = append(rows, row)
+	}
+	m.rows = rows
+	m.rebuildVisible()
 }
 
 func (m *Model) rebuildVisible() {

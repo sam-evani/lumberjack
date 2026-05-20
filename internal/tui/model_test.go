@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -100,6 +101,110 @@ func TestConfirmationDisclosesPendingBranchActions(t *testing.T) {
 	if !strings.Contains(view, "keep branch sam-evani/unmerged") {
 		t.Fatalf("View() missing keep branch disclosure:\n%s", view)
 	}
+}
+
+func TestConfirmDeletionRemovesMergedWorktreeAndBranch(t *testing.T) {
+	rows := []worktree.Entry{
+		rowWith("repo", "/repo/.worktrees/merged", worktree.StatusMerged, func(entry *worktree.Entry) {
+			entry.Branch = "sam-evani/merged"
+		}),
+	}
+	deleter := &fakeDeleter{}
+	model := NewModelWithDeleter(rows, deleter)
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeySpace})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	wantRemove := []worktree.RemoveWorktreeAction{{RepoPath: "/repo", Path: "/repo/.worktrees/merged"}}
+	if !reflect.DeepEqual(deleter.removed, wantRemove) {
+		t.Fatalf("removed = %#v, want %#v", deleter.removed, wantRemove)
+	}
+	wantBranches := []worktree.BranchAction{{RepoPath: "/repo", Branch: "sam-evani/merged"}}
+	if !reflect.DeepEqual(deleter.branches, wantBranches) {
+		t.Fatalf("branches = %#v, want %#v", deleter.branches, wantBranches)
+	}
+	if len(model.rows) != 0 {
+		t.Fatalf("rows = %#v, want none", model.rows)
+	}
+	if got := model.Message(); got != "deleted 1 worktree(s), 1 branch(es)" {
+		t.Fatalf("Message() = %q, want success message", got)
+	}
+}
+
+func TestConfirmDeletionFailureLeavesRowAndDoesNotDeleteBranch(t *testing.T) {
+	rows := []worktree.Entry{
+		rowWith("repo", "/repo/.worktrees/merged", worktree.StatusMerged, func(entry *worktree.Entry) {
+			entry.Branch = "sam-evani/merged"
+		}),
+	}
+	deleter := &fakeDeleter{removeErr: errors.New("remove failed")}
+	model := NewModelWithDeleter(rows, deleter)
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeySpace})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	if len(model.rows) != 1 {
+		t.Fatalf("rows = %#v, want original row", model.rows)
+	}
+	if len(deleter.branches) != 0 {
+		t.Fatalf("branches = %#v, want none", deleter.branches)
+	}
+	if got := model.Message(); !strings.HasPrefix(got, "errors:") {
+		t.Fatalf("Message() = %q, want errors prefix", got)
+	}
+}
+
+func TestConfirmDeletionKeepsUnmergedBranch(t *testing.T) {
+	rows := []worktree.Entry{
+		rowWith("repo", "/repo/.worktrees/unmerged", worktree.StatusUnmerged, func(entry *worktree.Entry) {
+			entry.Branch = "sam-evani/unmerged"
+		}),
+	}
+	deleter := &fakeDeleter{}
+	model := NewModelWithDeleter(rows, deleter)
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeySpace})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	wantRemove := []worktree.RemoveWorktreeAction{{RepoPath: "/repo", Path: "/repo/.worktrees/unmerged"}}
+	if !reflect.DeepEqual(deleter.removed, wantRemove) {
+		t.Fatalf("removed = %#v, want %#v", deleter.removed, wantRemove)
+	}
+	if len(deleter.branches) != 0 {
+		t.Fatalf("branches = %#v, want none", deleter.branches)
+	}
+	if len(model.rows) != 0 {
+		t.Fatalf("rows = %#v, want none", model.rows)
+	}
+}
+
+type fakeDeleter struct {
+	removed   []worktree.RemoveWorktreeAction
+	branches  []worktree.BranchAction
+	removeErr error
+	branchErr error
+}
+
+func (d *fakeDeleter) RemoveWorktree(action worktree.RemoveWorktreeAction) error {
+	d.removed = append(d.removed, action)
+	return d.removeErr
+}
+
+func (d *fakeDeleter) DeleteBranch(action worktree.BranchAction) error {
+	d.branches = append(d.branches, action)
+	return d.branchErr
 }
 
 func row(repoName string, path string, status worktree.MergeStatus) worktree.Entry {
