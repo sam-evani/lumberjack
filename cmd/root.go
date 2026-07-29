@@ -5,17 +5,40 @@ import (
 	"os"
 	"path/filepath"
 
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/sam-evani/lumberjack/internal/scan"
+	"github.com/sam-evani/lumberjack/internal/tui"
+	"github.com/sam-evani/lumberjack/internal/worktree"
 	"github.com/spf13/cobra"
 )
 
 var rootPath string
 
+var (
+	rootRows = scan.Default
+	runTUI   = func(rows []worktree.Entry, deleter tui.Deleter, refresh tui.RefreshFunc) error {
+		_, err := tea.NewProgram(tui.NewModelWithOptions(rows, deleter, refresh), tea.WithAltScreen()).Run()
+		return err
+	}
+)
+
 var rootCmd = &cobra.Command{
-	Use:   "chainsaw",
-	Short: "Prune git worktrees safely",
-	Long:  "chainsaw is an interactive TUI for inspecting and pruning git worktrees.",
+	Use:           "chainsaw",
+	Short:         "Prune git worktrees safely",
+	Long:          "chainsaw is an interactive TUI for inspecting and pruning git worktrees.",
+	Args:          cobra.NoArgs,
+	SilenceErrors: true,
+	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return cmd.Help()
+		requestedRoot := rootPath
+		rows, err := rootRows(requestedRoot)
+		if err != nil {
+			return err
+		}
+		refresh := func() ([]worktree.Entry, error) {
+			return rootRows(requestedRoot)
+		}
+		return runTUI(rows, tui.GitDeleter{}, refresh)
 	},
 }
 
