@@ -3,7 +3,7 @@
 `lumberjack` builds `chainsaw`, which reclaims disk space from git worktrees under `$HOME/co`:
 
 - `chainsaw prune` removes every worktree whose branch is merged into main/master (including squash merges), then deletes the branch. Meant to run daily via launchd.
-- `chainsaw serve` opens a local web UI showing every worktree's status and size, so you can pick the rest by hand and watch them disappear.
+- `chainsaw` opens a local web UI showing every worktree's status and size, so you can pick the rest by hand and watch them disappear.
 
 ## Install
 
@@ -15,7 +15,7 @@ chainsaw schedule install      # daily auto-prune at 10:00
 ## Usage
 
 ```bash
-chainsaw serve                 # web UI (random localhost port, opens browser)
+chainsaw                       # web UI (random localhost port, opens browser); same as `chainsaw serve`
 chainsaw prune --dry-run       # show what the daily run would remove
 chainsaw prune                 # run the cleanup now
 chainsaw schedule status       # is the agent loaded, and what did the last run do

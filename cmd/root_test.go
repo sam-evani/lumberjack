@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/sam-evani/lumberjack/internal/worktree"
+	"github.com/spf13/cobra"
 )
 
 func executeRootForTest(args ...string) (string, string, error) {
@@ -71,10 +72,26 @@ func TestRootRejectsArgs(t *testing.T) {
 	}
 }
 
-func TestRootPrintsHelpWithSubcommands(t *testing.T) {
-	stdout, _, err := executeRootForTest()
-	if err != nil {
+func TestRootLaunchesWebUIWithServeFlags(t *testing.T) {
+	original, originalNoOpen := runServe, serveNoOpen
+	t.Cleanup(func() { runServe, serveNoOpen = original, originalNoOpen })
+	called := false
+	runServe = func(*cobra.Command) error {
+		called = true
+		return nil
+	}
+	if _, _, err := executeRootForTest("--no-open"); err != nil {
 		t.Fatalf("expected root command to succeed, got %v", err)
+	}
+	if !called || !serveNoOpen {
+		t.Fatalf("runServe called = %v, no-open = %v", called, serveNoOpen)
+	}
+}
+
+func TestHelpListsSubcommands(t *testing.T) {
+	stdout, _, err := executeRootForTest("--help")
+	if err != nil {
+		t.Fatal(err)
 	}
 	for _, want := range []string{"prune", "serve", "schedule", "list"} {
 		if !strings.Contains(stdout, want) {
