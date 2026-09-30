@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/sam-evani/lumberjack/internal/worktree"
 	"github.com/spf13/cobra"
 )
 
@@ -39,6 +40,11 @@ func defaultRoot() string {
 		return "."
 	}
 	return filepath.Join(home, "co")
+}
+
+func addPolicyFlags(cmd *cobra.Command, p *worktree.Policy) {
+	cmd.Flags().DurationVar(&p.StaleAfter, "stale-after", p.StaleAfter, "Flag unmerged worktrees with no commits for this long")
+	cmd.Flags().DurationVar(&p.DetachedAfter, "detached-after", p.DetachedAfter, "Auto-prune detached worktrees idle for this long")
 }
 
 func absRoot() (string, error) {

@@ -47,20 +47,28 @@ type Row struct {
 	Error           string            `json:"error,omitempty"`
 	LastCommitTime  time.Time         `json:"last_commit_time"`
 	LastCommitTitle string            `json:"last_commit_title"`
+	LastActivity    time.Time         `json:"last_activity"`
+	HeadContainedIn string            `json:"head_contained_in,omitempty"`
+	HeadOrphan      bool              `json:"head_orphan"`
+	AutoPrune       bool              `json:"auto_prune"`
 	SizeBytes       *int64            `json:"size_bytes"`
 	SizeError       string            `json:"size_error,omitempty"`
 	MeasuredAt      time.Time         `json:"measured_at"`
 }
 
-func NewRow(entry worktree.Entry, now time.Time, staleAfter time.Duration) Row {
+func NewRow(entry worktree.Entry, now time.Time, policy worktree.Policy) Row {
 	row := Row{
+		LastActivity:    entry.Activity(),
+		HeadContainedIn: entry.HeadContainedIn,
+		HeadOrphan:      entry.HeadOrphan,
+		AutoPrune:       policy.AutoPrune(entry, now),
 		Repo:            entry.RepoName,
 		RepoPath:        entry.RepoPath,
 		Path:            entry.Path,
 		Name:            entry.DisplayName,
 		Branch:          entry.Branch,
 		Status:          string(entry.Status),
-		Category:        worktree.Categorize(entry, now, staleAfter),
+		Category:        policy.Categorize(entry, now),
 		Dirty:           entry.Dirty,
 		Protected:       entry.Protected,
 		Primary:         entry.Path == entry.RepoPath,

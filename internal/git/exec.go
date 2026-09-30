@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Exec struct {
@@ -201,6 +202,74 @@ func (g *Exec) RemoveWorktree(path string, force bool) error {
 
 func (g *Exec) DeleteBranch(branch string) error {
 	_, err := g.run(g.dir, "branch", "-D", branch)
+	return err
+}
+
+// HeadContainedIn returns the first base ref, then local or remote branch,
+// that contains the worktree's HEAD, or "" if no ref does.
+func (g *Exec) HeadContainedIn(worktreePath string, baseRefs []string) (string, error) {
+	out, err := g.run(worktreePath, "rev-parse", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	head := strings.TrimSpace(string(out))
+	for _, base := range baseRefs {
+		ok, err := g.isAncestor(head, base)
+		if err != nil {
+			return "", err
+		}
+		if ok {
+			return base, nil
+		}
+	}
+	out, err = g.run(g.dir, "for-each-ref", "--contains", head, "--count=1", "--format=%(refname:short)", "refs/heads", "refs/remotes")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// dirtyFileStatLimit bounds how many uncommitted paths LastActivity stats.
+const dirtyFileStatLimit = 500
+
+// LastActivity returns the newest mtime among the worktree's HEAD and reflog
+// and its uncommitted files. It never writes to the repository.
+func (g *Exec) LastActivity(worktreePath string) (time.Time, error) {
+	out, err := g.run(worktreePath, "rev-parse", "--absolute-git-dir")
+	if err != nil {
+		return time.Time{}, err
+	}
+	adminDir := strings.TrimSpace(string(out))
+	var newest time.Time
+	consider := func(path string) {
+		if info, err := os.Lstat(path); err == nil && info.ModTime().After(newest) {
+			newest = info.ModTime()
+		}
+	}
+	consider(filepath.Join(adminDir, "HEAD"))
+	consider(filepath.Join(adminDir, "logs", "HEAD"))
+
+	out, err = g.run(worktreePath, "--no-optional-locks", "status", "--porcelain", "-z")
+	if err != nil {
+		return time.Time{}, err
+	}
+	fields := strings.Split(string(out), "\x00")
+	for i, n := 0, 0; i < len(fields) && n < dirtyFileStatLimit; i++ {
+		f := fields[i]
+		if len(f) < 4 {
+			continue
+		}
+		consider(filepath.Join(worktreePath, f[3:]))
+		n++
+		if f[0] == 'R' || f[0] == 'C' {
+			i++
+		}
+	}
+	return newest, nil
+}
+
+func (g *Exec) UpdateRef(ref, sha string) error {
+	_, err := g.run(g.dir, "update-ref", ref, sha)
 	return err
 }
 

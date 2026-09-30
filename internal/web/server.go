@@ -23,15 +23,15 @@ import (
 var indexHTML []byte
 
 type Config struct {
-	Root       string
-	Dirs       state.Dirs
-	StaleAfter time.Duration
-	Scan       func(root string) ([]worktree.Entry, error)
-	ScanRepo   func(repoPath string) []worktree.Entry
-	Runner     prune.Runner
-	Measure    func(paths []string, onResult func(size.Result))
-	Now        func() time.Time
-	LockWait   time.Duration
+	Root     string
+	Dirs     state.Dirs
+	Policy   worktree.Policy
+	Scan     func(root string) ([]worktree.Entry, error)
+	ScanRepo func(repoPath string) []worktree.Entry
+	Runner   prune.Runner
+	Measure  func(paths []string, onResult func(size.Result))
+	Now      func() time.Time
+	LockWait time.Duration
 }
 
 type Server struct {
@@ -224,7 +224,7 @@ func (s *Server) rescan() {
 	next := make(map[string]state.Row, len(entries))
 	paths := make([]string, 0, len(entries))
 	for _, e := range entries {
-		row := state.NewRow(e, now, s.cfg.StaleAfter)
+		row := state.NewRow(e, now, s.cfg.Policy)
 		if prev, ok := s.rows[e.Path]; ok {
 			row.SizeBytes, row.SizeError, row.MeasuredAt = prev.SizeBytes, prev.SizeError, prev.MeasuredAt
 		}
@@ -346,7 +346,7 @@ func (s *Server) runDelete(items []deleteItem, repos map[string]bool) {
 			s.hub.send("delete", prune.Event{Kind: prune.KindRemoved, Path: item.Path, Message: "already gone"})
 			continue
 		}
-		row := state.NewRow(e, now, s.cfg.StaleAfter)
+		row := state.NewRow(e, now, s.cfg.Policy)
 		s.mu.Lock()
 		if prev, ok := s.rows[e.Path]; ok {
 			row.SizeBytes, row.SizeError, row.MeasuredAt = prev.SizeBytes, prev.SizeError, prev.MeasuredAt

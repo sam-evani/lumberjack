@@ -16,6 +16,7 @@ type fakeRunner struct {
 	mu         sync.Mutex
 	calls      []string
 	salvageErr error
+	backupErr  error
 	removeErr  map[string]error
 	patch      string
 }
@@ -29,6 +30,11 @@ func (f *fakeRunner) record(s string) {
 func (f *fakeRunner) SalvagePatch(repoPath, path string) ([]byte, error) {
 	f.record("salvage " + path)
 	return []byte(f.patch), f.salvageErr
+}
+
+func (f *fakeRunner) BackupRef(repoPath, ref, sha string) error {
+	f.record("update-ref " + ref + " " + sha)
+	return f.backupErr
 }
 
 func (f *fakeRunner) RemoveWorktree(repoPath, path string, force bool) error {
@@ -113,6 +119,46 @@ func TestExecuteSalvageFailureSkipsRemoval(t *testing.T) {
 	last := events[len(events)-1]
 	if last.Kind != KindFailed || !strings.Contains(last.Message, "salvage failed") {
 		t.Fatalf("last event = %#v", last)
+	}
+}
+
+func TestExecuteDetachedOrphanIsBackedUpBeforeRemoval(t *testing.T) {
+	entries := []worktree.Entry{
+		{RepoName: "r", RepoPath: "/r", Path: "/r/wt/review", Status: worktree.StatusDetached, Detached: true, HeadOrphan: true, HeadSHA: "0123456789abcdef", Dirty: true},
+		{RepoName: "r", RepoPath: "/r", Path: "/r/wt/onmain", Status: worktree.StatusDetached, Detached: true, HeadContainedIn: "origin/main", HeadSHA: "fedcba98"},
+	}
+	runner := &fakeRunner{}
+	salvageDir := t.TempDir()
+	Execute(entries, all(entries), runner, salvageDir, nil)
+
+	want := []string{
+		"update-ref refs/chainsaw/backup/review-01234567 0123456789abcdef",
+		"salvage /r/wt/review",
+		"remove --force /r/wt/review",
+		"remove /r/wt/onmain",
+		"prune /r",
+	}
+	if !reflect.DeepEqual(runner.calls, want) {
+		t.Fatalf("calls = %#v\nwant %#v", runner.calls, want)
+	}
+	if _, err := os.Stat(filepath.Join(salvageDir, "r--review.patch")); err != nil {
+		t.Fatalf("salvage file for detached worktree: %v", err)
+	}
+}
+
+func TestExecuteBackupFailureSkipsRemoval(t *testing.T) {
+	entries := []worktree.Entry{
+		{RepoName: "r", RepoPath: "/r", Path: "/r/wt/review", Status: worktree.StatusDetached, Detached: true, HeadOrphan: true, HeadSHA: "0123456789"},
+	}
+	runner := &fakeRunner{backupErr: errors.New("nope")}
+	res := Execute(entries, all(entries), runner, t.TempDir(), nil)
+	for _, c := range runner.calls {
+		if strings.HasPrefix(c, "remove") {
+			t.Fatalf("removed after failed backup: %v", runner.calls)
+		}
+	}
+	if len(res.Failed) != 1 {
+		t.Fatalf("result = %#v", res)
 	}
 }
 

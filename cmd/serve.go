@@ -21,9 +21,9 @@ import (
 )
 
 var (
-	serveNoOpen     bool
-	servePort       int
-	serveStaleAfter time.Duration
+	serveNoOpen bool
+	servePort   int
+	servePolicy = worktree.DefaultPolicy()
 )
 
 var serveCmd = &cobra.Command{
@@ -41,12 +41,12 @@ var runServe = func(cmd *cobra.Command) error {
 		return err
 	}
 	srv, err := web.NewServer(web.Config{
-		Root:       root,
-		Dirs:       state.Default(),
-		StaleAfter: serveStaleAfter,
-		Scan:       scan.Default,
-		ScanRepo:   scan.DefaultRepo,
-		Runner:     prune.GitRunner{},
+		Root:     root,
+		Dirs:     state.Default(),
+		Policy:   servePolicy,
+		Scan:     scan.Default,
+		ScanRepo: scan.DefaultRepo,
+		Runner:   prune.GitRunner{},
 	})
 	if err != nil {
 		return err
@@ -87,7 +87,7 @@ var runServe = func(cmd *cobra.Command) error {
 func addServeFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&serveNoOpen, "no-open", false, "Don't open the browser")
 	cmd.Flags().IntVar(&servePort, "port", 0, "Port to listen on (default: random)")
-	cmd.Flags().DurationVar(&serveStaleAfter, "stale-after", worktree.DefaultStaleAfter, "Unmerged worktrees older than this are flagged for review")
+	addPolicyFlags(cmd, &servePolicy)
 }
 
 func init() {

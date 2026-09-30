@@ -7,7 +7,7 @@
 <style>
   :root {
     --bg: #0f1115; --panel: #171a21; --line: #262b36; --text: #d8dde6; --muted: #8a93a3;
-    --merged: #3fb67a; --review: #e0a93b; --active: #6b8fd6; --protected: #5b6270; --danger: #e0584f;
+    --merged: #3fb67a; --detached: #b085e6; --review: #e0a93b; --active: #6b8fd6; --protected: #5b6270; --danger: #e0584f;
     font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
   * { box-sizing: border-box; }
@@ -48,6 +48,7 @@
   tr.gone { opacity: 0; }
   tr.failed td { background: #2a1717; }
   .badge { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 11px; font-weight: 600; color: #0f1115; background: var(--c); }
+  .auto { font-size: 10px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
   .pill { display: inline-block; padding: 1px 6px; border-radius: 999px; font-size: 11px; border: 1px solid var(--review); color: var(--review); }
   .share { display: flex; align-items: center; gap: 6px; }
   .share i { display: block; height: 6px; background: var(--active); border-radius: 3px; min-width: 1px; }
@@ -85,7 +86,7 @@
     <span id="chips"></span>
     <label class="inline"><input type="checkbox" id="wrap"> wrap text</label>
     <span style="flex:1"></span>
-    <button id="selMerged">Select all merged</button>
+    <button id="selMerged" title="Merged worktrees and detached worktrees idle past the threshold">Select all auto-prunable</button>
     <button id="clear">Clear</button>
     <button id="del" class="danger" disabled>Delete selected</button>
   </div>
@@ -113,6 +114,7 @@
 const token = new URLSearchParams(location.search).get("t");
 const CATS = {
   merged:    { label: "merged",       color: "var(--merged)" },
+  detached:  { label: "detached",     color: "var(--detached)" },
   review:    { label: "needs review", color: "var(--review)" },
   active:    { label: "active",       color: "var(--active)" },
   protected: { label: "protected",    color: "var(--protected)" },
@@ -126,7 +128,7 @@ const COLUMNS = [
   { key: "dirty",   label: "Changes",    width: 90,  sort: r => r.dirty ? 1 : 0 },
   { key: "size",    label: "Size",       width: 90,  sort: r => r.size_bytes ?? -1 },
   { key: "share",   label: "% of total", width: 130, sort: r => r.size_bytes ?? -1 },
-  { key: "age",     label: "Last commit",width: 100, sort: r => ts(r) },
+  { key: "age",     label: "Last active",width: 100, sort: r => ts(r) },
   { key: "subject", label: "Subject",    width: 320, sort: r => r.last_commit_title },
   { key: "path",    label: "Path",       width: 380, sort: r => r.path },
   { key: "note",    label: "Note",       width: 260, sort: r => r.error || r.reason || "" },
@@ -136,12 +138,19 @@ let state = { rows: [] };
 const selected = new Set();
 const rowStatus = new Map(); // path -> {busy, failed, msg}
 let sortKey = "size", sortDir = -1;
-const shown = new Set(JSON.parse(localStorage.getItem("chainsaw.cats") || '["merged","review","active","protected"]'));
+const shown = new Set(JSON.parse(localStorage.getItem("chainsaw.cats") || '["merged","detached","review","active","protected"]'));
+if (!localStorage.getItem("chainsaw.seen-detached")) { shown.add("detached"); localStorage.setItem("chainsaw.seen-detached", "1"); }
 const widths = JSON.parse(localStorage.getItem("chainsaw.widths") || "{}");
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const ts = r => r.last_commit_time && !r.last_commit_time.startsWith("0001") ? Date.parse(r.last_commit_time) : 0;
+const when = s => s && !s.startsWith("0001") ? Date.parse(s) : 0;
+const ts = r => Math.max(when(r.last_activity), when(r.last_commit_time));
+function detachedNote(r) {
+  if (r.head_orphan) return '<span style="color:var(--review)" title="Removing keeps a backup ref (refs/chainsaw/backup/…) so these commits are not lost">⚠ commits on no branch (backup ref kept)</span>';
+  if (r.head_contained_in) return "commit is on " + esc(r.head_contained_in);
+  return "";
+}
 
 function bytes(n) {
   if (n == null) return "?";
@@ -208,8 +217,8 @@ function visibleRows() {
 function render() {
   const rows = state.rows;
   const total = rows.reduce((s, r) => s + (r.size_bytes || 0), 0);
-  const by = { merged: 0, review: 0, active: 0, protected: 0 };
-  const count = { merged: 0, review: 0, active: 0, protected: 0 };
+  const by = {}, count = {};
+  for (const k in CATS) { by[k] = 0; count[k] = 0; }
   for (const r of rows) { by[r.category] += r.size_bytes || 0; count[r.category]++; }
   for (const p of [...selected]) if (!rows.some(r => r.path === p)) selected.delete(p);
   const selRows = rows.filter(r => selected.has(r.path));
@@ -249,7 +258,10 @@ function rowHTML(r, total) {
   const st = rowStatus.get(r.path) || {};
   const cat = CATS[r.category];
   const pct = total && r.size_bytes ? r.size_bytes / total * 100 : 0;
-  const note = st.msg ? `<span class="${st.failed ? "err" : ""}">${esc(st.msg)}</span>` : r.error ? `<span class="err">${esc(r.error)}</span>` : esc(r.reason || (r.primary ? "primary checkout" : ""));
+  const note = st.msg ? `<span class="${st.failed ? "err" : ""}">${esc(st.msg)}</span>`
+    : r.error ? `<span class="err">${esc(r.error)}</span>`
+    : r.category === "detached" ? detachedNote(r)
+    : esc(r.reason || (r.primary ? "primary checkout" : ""));
   const cls = ["cat-" + r.category, selected.has(r.path) ? "selected" : "", st.busy ? "busy" : "", st.failed ? "failed" : "", st.gone ? "gone" : ""].join(" ");
   const t = ts(r);
   return `<tr class="${cls}" data-p="${esc(r.path)}">
@@ -257,7 +269,7 @@ function rowHTML(r, total) {
     <td title="${esc(r.repo)}">${esc(r.repo)}</td>
     <td title="${esc(r.name)}">${esc(r.name)}</td>
     <td title="${esc(r.branch)}">${esc(r.branch) || '<span class="muted">(detached)</span>'}</td>
-    <td><span class="badge" style="--c:${cat.color}">${cat.label}</span></td>
+    <td><span class="badge" style="--c:${cat.color}">${cat.label}</span>${r.auto_prune ? ' <span class="auto" title="The daily auto-prune will remove this">auto</span>' : ""}</td>
     <td>${r.dirty ? '<span class="pill" title="Will be saved as a salvage patch, then force-removed">uncommitted</span>' : ""}</td>
     <td class="num" title="${r.size_error ? esc(r.size_error) : ""}">${r.size_bytes == null ? (state.scanning ? "…" : "?") : bytes(r.size_bytes)}</td>
     <td><div class="share"><i style="width:${Math.max(pct, 0.5)}%"></i><span class="muted">${pct >= 0.1 ? pct.toFixed(1) + "%" : ""}</span></div></td>
@@ -283,20 +295,22 @@ $("wrap").addEventListener("change", e => { document.body.classList.toggle("wrap
 if (localStorage.getItem("chainsaw.wrap") === "true") { $("wrap").checked = true; document.body.classList.add("wrap"); }
 $("rescan").onclick = () => api("/api/rescan", {});
 $("clear").onclick = () => { selected.clear(); render(); };
-$("selMerged").onclick = () => { for (const r of visibleRows()) if (r.category === "merged") selected.add(r.path); render(); };
+$("selMerged").onclick = () => { for (const r of visibleRows()) if (r.auto_prune) selected.add(r.path); render(); };
 
 $("del").onclick = () => {
   const rows = state.rows.filter(r => selected.has(r.path));
   const merged = rows.filter(r => r.category === "merged" && r.branch);
   const kept = rows.filter(r => r.category !== "merged" && r.branch);
   const dirty = rows.filter(r => r.dirty);
+  const orphans = rows.filter(r => r.head_orphan);
   const list = (title, items, fmt) => items.length ? `<div><b>${title}</b> (${items.length})<ul>${items.map(r => `<li>${esc(fmt(r))}</li>`).join("")}</ul></div>` : "";
   $("cTitle").textContent = `Delete ${rows.length} worktree${rows.length === 1 ? "" : "s"} (${bytes(rows.reduce((s, r) => s + (r.size_bytes || 0), 0))})?`;
   $("cBody").innerHTML =
     list("Remove worktrees", rows, r => r.path) +
     list("Delete merged branches", merged, r => `${r.repo}: ${r.branch}`) +
     list("Keep unmerged branches", kept, r => `${r.repo}: ${r.branch}`) +
-    list("⚠️ Uncommitted changes: salvage patch saved, then force-removed", dirty, r => r.path);
+    list("⚠️ Uncommitted changes: salvage patch saved, then force-removed", dirty, r => r.path) +
+    list("⚠️ Detached with commits on no branch: backup ref kept under refs/chainsaw/backup/", orphans, r => r.path);
   $("confirm").showModal();
 };
 $("cCancel").onclick = () => $("confirm").close();

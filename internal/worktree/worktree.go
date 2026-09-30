@@ -35,8 +35,23 @@ type Entry struct {
 	Dirty           bool
 	LastCommitTime  time.Time
 	LastCommitTitle string
+	// LastActivity is the newest of HEAD/reflog changes and uncommitted file
+	// edits; zero if not inspected.
+	LastActivity time.Time
+	// For detached worktrees: the base ref or branch containing HEAD, and
+	// whether no ref contains it (its commits would be lost on removal).
+	HeadContainedIn string
+	HeadOrphan      bool
 	Protected       bool
 	Error           string
+}
+
+// Activity is the most recent sign of use: last commit or LastActivity.
+func (e Entry) Activity() time.Time {
+	if e.LastActivity.After(e.LastCommitTime) {
+		return e.LastActivity
+	}
+	return e.LastCommitTime
 }
 
 func ParsePorcelain(out []byte) ([]Entry, error) {

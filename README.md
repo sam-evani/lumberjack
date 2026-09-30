@@ -23,21 +23,25 @@ chainsaw schedule uninstall
 chainsaw list                  # TSV output
 ```
 
-All commands accept `--root DIR` (default `~/co`). `prune` and `serve` accept `--stale-after` (default `720h`) to control when unmerged worktrees are flagged for review.
+All commands accept `--root DIR` (default `~/co`). `chainsaw`, `serve`, and `prune` accept `--stale-after` (default `720h`, when unmerged worktrees are flagged for review) and `--detached-after` (default `720h`, when detached worktrees are auto-pruned).
 
 ## Categories
 
 | Category | Meaning | Auto-pruned | Deletable in UI |
 |---|---|---|---|
 | merged (green) | Branch merged into main/master | yes | yes |
+| detached (purple) | Checked out on a commit, not a branch (PR reviews, agent sandboxes) | if idle longer than `--detached-after` (default 30 days) | yes |
 | needs review (amber) | Unmerged with no commits in `--stale-after`, or the scan hit an error | no | stale: yes, error: no |
 | active (blue) | Unmerged, recent | no | yes |
-| protected (grey) | Primary checkout, main/master, locked, bare, detached, prunable | no | no |
+| protected (grey) | Primary checkout, main/master, locked, bare, prunable | no | no |
+
+A detached worktree's "idle" time is the newest of its last commit, last checkout (HEAD/reflog change), and last edit to an uncommitted file, so a fresh checkout of an old commit is not considered idle.
 
 ## Safety rules
 
 - Protected rows are never deleted, by `prune` or the UI; the server re-checks every request.
 - Worktrees with uncommitted changes are salvaged before being force-removed: tracked edits and untracked (non-ignored) files are written to `~/.local/state/chainsaw/salvage/<timestamp>/<repo>--<branch>.patch`. If salvage fails, the worktree is left alone. Gitignored files (build output, `node_modules`) are not saved. Salvage batches older than 90 days are deleted.
+- Detached worktrees whose commits aren't on any branch get a backup ref (`refs/chainsaw/backup/<worktree>-<sha>`) before removal, so the commits survive gc. List them with `git for-each-ref refs/chainsaw/backup` and restore with `git worktree add <dir> <ref>`. If the backup fails, the worktree is left alone.
 - Branches are deleted only if merged and only after their worktree is removed. Unmerged branches are kept. Remote branches are never touched.
 - The UI re-scans affected repos right before deleting and rejects any row whose status changed since the page loaded.
 - `prune` and UI deletions share a lock, so they never run at the same time.

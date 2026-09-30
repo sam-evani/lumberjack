@@ -17,6 +17,7 @@ const (
 	KindStarted       Kind = "started"
 	KindSkipped       Kind = "skipped"
 	KindSalvaged      Kind = "salvaged"
+	KindBackedUp      Kind = "backed_up"
 	KindRemoved       Kind = "removed"
 	KindBranchDeleted Kind = "branch_deleted"
 	KindBranchKept    Kind = "branch_kept"
@@ -33,6 +34,7 @@ type Event struct {
 
 type Runner interface {
 	SalvagePatch(repoPath, worktreePath string) ([]byte, error)
+	BackupRef(repoPath, ref, sha string) error
 	RemoveWorktree(repoPath, path string, force bool) error
 	DeleteBranch(repoPath, branch string) error
 	PruneWorktrees(repoPath string) error
@@ -42,6 +44,10 @@ type GitRunner struct{}
 
 func (GitRunner) SalvagePatch(repoPath, worktreePath string) ([]byte, error) {
 	return git.NewExec(repoPath).SalvagePatch(worktreePath)
+}
+
+func (GitRunner) BackupRef(repoPath, ref, sha string) error {
+	return git.NewExec(repoPath).UpdateRef(ref, sha)
 }
 
 func (GitRunner) RemoveWorktree(repoPath, path string, force bool) error {
@@ -131,6 +137,18 @@ func removeOne(e worktree.Entry, runner Runner, salvageDir string, send func(Eve
 	}
 
 	send(with(KindStarted, ""))
+	if e.HeadOrphan {
+		ref := BackupRefName(e)
+		if e.HeadSHA == "" {
+			send(with(KindFailed, "commits are on no branch and HEAD is unknown, not removed"))
+			return
+		}
+		if err := runner.BackupRef(e.RepoPath, ref, e.HeadSHA); err != nil {
+			send(with(KindFailed, "backup ref failed, not removed: "+err.Error()))
+			return
+		}
+		send(with(KindBackedUp, ref))
+	}
 	if e.Dirty {
 		file, err := salvage(e, runner, salvageDir)
 		if err != nil {
@@ -159,6 +177,16 @@ func removeOne(e worktree.Entry, runner Runner, salvageDir string, send func(Eve
 	send(with(KindBranchDeleted, ""))
 }
 
+// BackupRefName is where a detached worktree's otherwise-unreferenced HEAD is
+// kept so its commits survive removal and gc.
+func BackupRefName(e worktree.Entry) string {
+	sha := e.HeadSHA
+	if len(sha) > 8 {
+		sha = sha[:8]
+	}
+	return "refs/chainsaw/backup/" + filepath.Base(e.Path) + "-" + sha
+}
+
 func salvage(e worktree.Entry, runner Runner, salvageDir string) (string, error) {
 	patch, err := runner.SalvagePatch(e.RepoPath, e.Path)
 	if err != nil {
@@ -167,7 +195,11 @@ func salvage(e worktree.Entry, runner Runner, salvageDir string) (string, error)
 	if err := os.MkdirAll(salvageDir, 0o755); err != nil {
 		return "", err
 	}
-	name := e.RepoName + "--" + strings.ReplaceAll(e.Branch, "/", "-") + ".patch"
+	label := strings.ReplaceAll(e.Branch, "/", "-")
+	if label == "" {
+		label = filepath.Base(e.Path)
+	}
+	name := e.RepoName + "--" + label + ".patch"
 	file := filepath.Join(salvageDir, name)
 	header := fmt.Sprintf("# chainsaw salvage\n# path: %s\n# branch: %s\n# head: %s\n# restore: git worktree add <dir> %s && git -C <dir> apply %s\n\n",
 		e.Path, e.Branch, e.HeadSHA, e.HeadSHA, file)

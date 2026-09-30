@@ -20,9 +20,9 @@ import (
 const salvageRetention = 90 * 24 * time.Hour
 
 var (
-	pruneDryRun     bool
-	pruneStaleAfter time.Duration
-	pruneNotify     bool
+	pruneDryRun bool
+	prunePolicy = worktree.DefaultPolicy()
+	pruneNotify bool
 
 	pruneScan                = scan.Default
 	pruneRunner prune.Runner = prune.GitRunner{}
@@ -49,7 +49,7 @@ var pruneCmd = &cobra.Command{
 
 func init() {
 	pruneCmd.Flags().BoolVar(&pruneDryRun, "dry-run", false, "Print what would be removed without deleting anything")
-	pruneCmd.Flags().DurationVar(&pruneStaleAfter, "stale-after", worktree.DefaultStaleAfter, "Unmerged worktrees older than this are flagged for review")
+	addPolicyFlags(pruneCmd, &prunePolicy)
 	pruneCmd.Flags().BoolVar(&pruneNotify, "notify", true, "Post a macOS notification with the result")
 	rootCmd.AddCommand(pruneCmd)
 }
@@ -80,7 +80,7 @@ func runPrune(w io.Writer, root string) error {
 	selected := map[string]bool{}
 	var targets []worktree.Entry
 	for _, e := range entries {
-		if worktree.Categorize(e, now, pruneStaleAfter) == worktree.CategoryMerged {
+		if prunePolicy.AutoPrune(e, now) {
 			selected[e.Path] = true
 			targets = append(targets, e)
 		}
@@ -110,11 +110,22 @@ func runPrune(w io.Writer, root string) error {
 	if pruneDryRun {
 		var total int64
 		for _, e := range targets {
-			dirty := ""
-			if e.Dirty {
-				dirty = " (dirty: would salvage + force)"
+			label := e.Branch
+			var notes []string
+			if e.Detached {
+				label = "detached, idle since " + e.Activity().Format("2006-01-02")
+				if e.HeadOrphan {
+					notes = append(notes, "commits on no branch: would keep "+prune.BackupRefName(e))
+				}
 			}
-			fmt.Fprintf(w, "would remove %s [%s] %s%s\n", e.Path, e.Branch, humanize.Bytes(uint64(sizes[e.Path])), dirty)
+			if e.Dirty {
+				notes = append(notes, "dirty: would salvage + force")
+			}
+			note := ""
+			if len(notes) > 0 {
+				note = " (" + strings.Join(notes, "; ") + ")"
+			}
+			fmt.Fprintf(w, "would remove %s [%s] %s%s\n", e.Path, label, humanize.Bytes(uint64(sizes[e.Path])), note)
 			total += sizes[e.Path]
 		}
 		fmt.Fprintf(w, "%d worktrees, %s\n", len(targets), humanize.Bytes(uint64(total)))
@@ -166,7 +177,7 @@ func runPrune(w io.Writer, root string) error {
 	size.MeasureAll(paths, func(r size.Result) { measured[r.Path] = r })
 	rows := make([]state.Row, 0, len(remaining))
 	for _, e := range remaining {
-		row := state.NewRow(e, now, pruneStaleAfter)
+		row := state.NewRow(e, now, prunePolicy)
 		if m := measured[e.Path]; m.Err == nil {
 			n := m.Bytes
 			row.SizeBytes = &n

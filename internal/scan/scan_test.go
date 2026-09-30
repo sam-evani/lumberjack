@@ -398,6 +398,14 @@ func (g *fakeGit) LastCommit(worktreePath string) (int64, string, error) {
 	return commit.unix, commit.subject, commit.err
 }
 
+func (g *fakeGit) HeadContainedIn(worktreePath string, baseRefs []string) (string, error) {
+	return "main", nil
+}
+
+func (g *fakeGit) LastActivity(worktreePath string) (time.Time, error) {
+	return time.Time{}, nil
+}
+
 func (g *fakeGit) RemoveWorktree(path string, force bool) error {
 	panic("RemoveWorktree should not be called by scan")
 }

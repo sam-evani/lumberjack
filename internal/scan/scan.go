@@ -121,6 +121,18 @@ func inspect(entry worktree.Entry, repoPath, repoName string, git Git, baseRefs 
 		}
 	}
 
+	if entry.Error == "" && shouldInspectDetached(entry) {
+		activity, err := git.LastActivity(entry.Path)
+		setErrorIfEmpty(&entry, err)
+		entry.LastActivity = activity
+		if err == nil {
+			in, err := git.HeadContainedIn(entry.Path, baseRefs)
+			setErrorIfEmpty(&entry, err)
+			entry.HeadContainedIn = in
+			entry.HeadOrphan = err == nil && in == ""
+		}
+	}
+
 	merged := false
 	if entry.Error == "" && hasBaseRef && shouldCheckMerged(entry) {
 		var err error
@@ -155,6 +167,10 @@ func dedupeRows(rows []worktree.Entry) []worktree.Entry {
 
 func shouldInspect(entry worktree.Entry) bool {
 	return !entry.Prunable && !entry.Bare
+}
+
+func shouldInspectDetached(entry worktree.Entry) bool {
+	return entry.Detached && entry.Path != entry.RepoPath && !entry.Locked && !entry.Bare && !entry.Prunable
 }
 
 func shouldCheckMerged(entry worktree.Entry) bool {

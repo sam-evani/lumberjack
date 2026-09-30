@@ -54,7 +54,7 @@ func TestClassify(t *testing.T) {
 			},
 			hasBaseRef:    true,
 			wantStatus:    StatusDetached,
-			wantProtected: true,
+			wantProtected: false,
 		},
 		{
 			name: "prunable",

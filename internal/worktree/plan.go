@@ -41,7 +41,7 @@ func PlanDeletion(entries []Entry, selected map[string]bool, mode DeleteMode) De
 			plan.Skipped = append(plan.Skipped, SkippedAction{Entry: entry, Reason: "protected: " + ProtectionReason(entry)})
 			continue
 		}
-		if entry.Status == StatusDetached || entry.Status == StatusUnknown || entry.Status == StatusPrunable {
+		if entry.Status == StatusUnknown || entry.Status == StatusPrunable {
 			plan.Skipped = append(plan.Skipped, SkippedAction{Entry: entry, Reason: string(entry.Status)})
 			continue
 		}

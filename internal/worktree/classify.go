@@ -23,7 +23,7 @@ func Classify(entry Entry, mergedIntoBase bool, hasBaseRef bool) Entry {
 		entry.Protected = true
 	case entry.Detached:
 		entry.Status = StatusDetached
-		entry.Protected = true
+		entry.Protected = false
 	case entry.Branch == "main" || entry.Branch == "master":
 		entry.Status = StatusBase
 		entry.Protected = true

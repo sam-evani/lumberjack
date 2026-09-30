@@ -23,6 +23,7 @@ type recordingRunner struct {
 }
 
 func (r *recordingRunner) SalvagePatch(repoPath, path string) ([]byte, error) { return nil, nil }
+func (r *recordingRunner) BackupRef(repoPath, ref, sha string) error          { return nil }
 func (r *recordingRunner) RemoveWorktree(repoPath, path string, force bool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -44,12 +45,12 @@ func newTestServer(t *testing.T, repoEntries func() []worktree.Entry) (*Server, 
 	t.Helper()
 	runner := &recordingRunner{}
 	s, err := NewServer(Config{
-		Root:       "/co",
-		Dirs:       state.Dirs{Root: t.TempDir()},
-		StaleAfter: worktree.DefaultStaleAfter,
-		Scan:       func(string) ([]worktree.Entry, error) { return testEntries(), nil },
-		ScanRepo:   func(string) []worktree.Entry { return repoEntries() },
-		Runner:     runner,
+		Root:     "/co",
+		Dirs:     state.Dirs{Root: t.TempDir()},
+		Policy:   worktree.DefaultPolicy(),
+		Scan:     func(string) ([]worktree.Entry, error) { return testEntries(), nil },
+		ScanRepo: func(string) []worktree.Entry { return repoEntries() },
+		Runner:   runner,
 		Measure: func(paths []string, on func(size.Result)) {
 			for _, p := range paths {
 				on(size.Result{Path: p, Bytes: 1000})
@@ -200,7 +201,7 @@ func TestDeleteStreamsEventsAndRejectsProtectedAndChangedRows(t *testing.T) {
 
 	// Second request: the row's category changed on disk, so it must be rejected.
 	s.mu.Lock()
-	s.rows["/r/wt/a"] = state.NewRow(testEntries()[1], time.Now(), worktree.DefaultStaleAfter)
+	s.rows["/r/wt/a"] = state.NewRow(testEntries()[1], time.Now(), worktree.DefaultPolicy())
 	s.mu.Unlock()
 	do(t, s, ts, "POST", "/api/delete", `{"items":[{"path":"/r/wt/a","category":"merged"}]}`, true)
 	got = nil
