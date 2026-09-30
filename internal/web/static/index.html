@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>chainsaw</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --line: #262b36; --text: #d8dde6; --muted: #8a93a3;
+    --merged: #3fb67a; --review: #e0a93b; --active: #6b8fd6; --protected: #5b6270; --danger: #e0584f;
+    font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); }
+  header { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line); padding: 12px 16px; }
+  h1 { font-size: 16px; margin: 0 12px 0 0; display: inline-block; }
+  .muted { color: var(--muted); }
+  .row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  .stat b { font-size: 18px; display: block; }
+  .stat { min-width: 110px; }
+  .bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--line); margin: 10px 0 6px; }
+  .bar div { height: 100%; transition: width .3s; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; }
+  .legend span::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; background: var(--c); }
+  .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+  input[type=search] { background: var(--bg); border: 1px solid var(--line); color: var(--text); padding: 6px 8px; border-radius: 6px; width: 260px; }
+  button { background: #232836; color: var(--text); border: 1px solid var(--line); padding: 6px 10px; border-radius: 6px; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--muted); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.danger { background: #3a1d1c; border-color: #6b2b27; color: #ffd6d2; }
+  .chip { border-radius: 999px; padding: 4px 10px; font-size: 12px; }
+  .chip[aria-pressed=false] { opacity: .4; }
+  .chip::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--c); }
+  label.inline { display: inline-flex; gap: 5px; align-items: center; color: var(--muted); }
+  main { padding: 0 16px 40px; }
+  table { border-collapse: collapse; table-layout: fixed; width: max-content; min-width: 100%; margin-top: 8px; }
+  th, td { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  body.wrap td { white-space: normal; word-break: break-word; }
+  th { position: sticky; top: var(--header-h, 150px); background: var(--panel); z-index: 2; user-select: none; cursor: pointer; color: var(--muted); font-weight: 600; }
+  th .grip { position: absolute; right: 0; top: 0; bottom: 0; width: 6px; cursor: col-resize; }
+  th .grip:hover, th .grip.dragging { background: var(--muted); }
+  th.sorted { color: var(--text); }
+  tr { transition: opacity .4s, background .2s; }
+  tr:hover td { background: #1a1e27; }
+  tr.selected td { background: #1d2433; }
+  tr.cat-protected td { color: var(--muted); }
+  tr.busy td { opacity: .55; }
+  tr.gone { opacity: 0; }
+  tr.failed td { background: #2a1717; }
+  .badge { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 11px; font-weight: 600; color: #0f1115; background: var(--c); }
+  .pill { display: inline-block; padding: 1px 6px; border-radius: 999px; font-size: 11px; border: 1px solid var(--review); color: var(--review); }
+  .share { display: flex; align-items: center; gap: 6px; }
+  .share i { display: block; height: 6px; background: var(--active); border-radius: 3px; min-width: 1px; }
+  .err { color: var(--danger); }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px; max-width: 820px; width: 90vw; }
+  dialog::backdrop { background: rgba(0,0,0,.6); }
+  dialog h3 { margin-top: 0; }
+  dialog ul { max-height: 180px; overflow: auto; margin: 4px 0 12px; padding-left: 18px; }
+  dialog li { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+  #toast { position: fixed; bottom: 16px; right: 16px; background: var(--panel); border: 1px solid var(--line); padding: 10px 14px; border-radius: 8px; display: none; max-width: 420px; }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+</style>
+</head>
+<body>
+<header id="hdr">
+  <div class="row">
+    <h1>🪓 chainsaw</h1>
+    <span class="muted" id="root"></span>
+    <span class="muted" id="scanInfo"></span>
+    <span style="flex:1"></span>
+    <span class="muted" id="pruneInfo"></span>
+    <button id="rescan">Rescan</button>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <div class="stat"><span class="muted">Total</span><b id="total">–</b></div>
+    <div class="stat"><span class="muted">Reclaimable</span><b id="reclaim">–</b></div>
+    <div class="stat"><span class="muted">Merged</span><b id="mergedSize">–</b></div>
+    <div class="stat"><span class="muted">Selected</span><b id="selSize">–</b></div>
+  </div>
+  <div class="bar" id="bar"></div>
+  <div class="legend" id="legend"></div>
+  <div class="toolbar">
+    <input type="search" id="filter" placeholder="Filter repo, branch, path, subject…">
+    <span id="chips"></span>
+    <label class="inline"><input type="checkbox" id="wrap"> wrap text</label>
+    <span style="flex:1"></span>
+    <button id="selMerged">Select all merged</button>
+    <button id="clear">Clear</button>
+    <button id="del" class="danger" disabled>Delete selected</button>
+  </div>
+</header>
+<main>
+  <table>
+    <colgroup id="cols"></colgroup>
+    <thead><tr id="head"></tr></thead>
+    <tbody id="body"></tbody>
+  </table>
+  <p class="muted" id="empty" style="display:none">No worktrees match.</p>
+</main>
+
+<dialog id="confirm">
+  <h3 id="cTitle"></h3>
+  <div id="cBody"></div>
+  <div class="row" style="justify-content:flex-end">
+    <button id="cCancel">Cancel</button>
+    <button id="cOk" class="danger">Delete</button>
+  </div>
+</dialog>
+<div id="toast"></div>
+
+<script>
+const token = new URLSearchParams(location.search).get("t");
+const CATS = {
+  merged:    { label: "merged",       color: "var(--merged)" },
+  review:    { label: "needs review", color: "var(--review)" },
+  active:    { label: "active",       color: "var(--active)" },
+  protected: { label: "protected",    color: "var(--protected)" },
+};
+const COLUMNS = [
+  { key: "sel",     label: "",           width: 34,  sort: null },
+  { key: "repo",    label: "Repo",       width: 150, sort: r => r.repo },
+  { key: "name",    label: "Worktree",   width: 200, sort: r => r.name },
+  { key: "branch",  label: "Branch",     width: 240, sort: r => r.branch },
+  { key: "cat",     label: "Status",     width: 110, sort: r => r.category },
+  { key: "dirty",   label: "Changes",    width: 90,  sort: r => r.dirty ? 1 : 0 },
+  { key: "size",    label: "Size",       width: 90,  sort: r => r.size_bytes ?? -1 },
+  { key: "share",   label: "% of total", width: 130, sort: r => r.size_bytes ?? -1 },
+  { key: "age",     label: "Last commit",width: 100, sort: r => ts(r) },
+  { key: "subject", label: "Subject",    width: 320, sort: r => r.last_commit_title },
+  { key: "path",    label: "Path",       width: 380, sort: r => r.path },
+  { key: "note",    label: "Note",       width: 260, sort: r => r.error || r.reason || "" },
+];
+
+let state = { rows: [] };
+const selected = new Set();
+const rowStatus = new Map(); // path -> {busy, failed, msg}
+let sortKey = "size", sortDir = -1;
+const shown = new Set(JSON.parse(localStorage.getItem("chainsaw.cats") || '["merged","review","active","protected"]'));
+const widths = JSON.parse(localStorage.getItem("chainsaw.widths") || "{}");
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const ts = r => r.last_commit_time && !r.last_commit_time.startsWith("0001") ? Date.parse(r.last_commit_time) : 0;
+
+function bytes(n) {
+  if (n == null) return "?";
+  const u = ["B", "KB", "MB", "GB", "TB"]; let i = 0;
+  while (n >= 1000 && i < u.length - 1) { n /= 1000; i++; }
+  return (i >= 3 ? n.toFixed(1) : Math.round(n)) + " " + u[i];
+}
+function ago(t) {
+  if (!t) return "";
+  const s = (Date.now() - t) / 1000;
+  if (s < 3600) return Math.max(1, Math.round(s / 60)) + "m ago";
+  if (s < 86400) return Math.round(s / 3600) + "h ago";
+  if (s < 86400 * 60) return Math.round(s / 86400) + "d ago";
+  return Math.round(s / 86400 / 30) + "mo ago";
+}
+function api(path, body) {
+  return fetch(path, { method: body ? "POST" : "GET", headers: { "X-Chainsaw-Token": token, "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+}
+function toast(html, ms = 6000) {
+  const t = $("toast"); t.innerHTML = html; t.style.display = "block";
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => t.style.display = "none", ms);
+}
+
+// ---------- header / columns ----------
+function buildHead() {
+  $("cols").innerHTML = COLUMNS.map(c => `<col data-k="${c.key}" style="width:${widths[c.key] || c.width}px">`).join("");
+  $("head").innerHTML = COLUMNS.map(c =>
+    `<th data-k="${c.key}" class="${c.key === sortKey ? "sorted" : ""}">${c.key === "sel" ? '<input type="checkbox" id="selAll" title="Select visible">' : esc(c.label) + (c.key === sortKey ? (sortDir < 0 ? " ▼" : " ▲") : "")}<span class="grip"></span></th>`).join("");
+  $("head").querySelectorAll("th").forEach(th => {
+    const key = th.dataset.k, col = COLUMNS.find(c => c.key === key);
+    th.addEventListener("click", e => {
+      if (e.target.classList.contains("grip") || !col.sort) return;
+      if (sortKey === key) sortDir = -sortDir; else { sortKey = key; sortDir = key === "size" || key === "share" ? -1 : 1; }
+      buildHead(); render();
+    });
+    th.querySelector(".grip").addEventListener("mousedown", e => startResize(e, key));
+  });
+  $("selAll").addEventListener("click", e => {
+    e.stopPropagation();
+    for (const r of visibleRows()) if (!r.protected) e.target.checked ? selected.add(r.path) : selected.delete(r.path);
+    render();
+  });
+}
+function startResize(e, key) {
+  e.preventDefault(); e.stopPropagation();
+  const col = document.querySelector(`col[data-k="${key}"]`), grip = e.target;
+  const startX = e.clientX, startW = col.getBoundingClientRect().width || parseInt(col.style.width);
+  grip.classList.add("dragging");
+  const move = ev => { const w = Math.max(30, startW + ev.clientX - startX); col.style.width = w + "px"; widths[key] = w; };
+  const up = () => { grip.classList.remove("dragging"); localStorage.setItem("chainsaw.widths", JSON.stringify(widths)); removeEventListener("mousemove", move); removeEventListener("mouseup", up); };
+  addEventListener("mousemove", move); addEventListener("mouseup", up);
+}
+
+// ---------- rendering ----------
+function visibleRows() {
+  const q = $("filter").value.trim().toLowerCase();
+  const col = COLUMNS.find(c => c.key === sortKey);
+  return state.rows
+    .filter(r => shown.has(r.category))
+    .filter(r => !q || [r.repo, r.name, r.branch, r.path, r.last_commit_title, r.error].some(v => (v || "").toLowerCase().includes(q)))
+    .sort((a, b) => { const x = col.sort(a), y = col.sort(b); return (x < y ? -1 : x > y ? 1 : 0) * sortDir; });
+}
+
+function render() {
+  const rows = state.rows;
+  const total = rows.reduce((s, r) => s + (r.size_bytes || 0), 0);
+  const by = { merged: 0, review: 0, active: 0, protected: 0 };
+  const count = { merged: 0, review: 0, active: 0, protected: 0 };
+  for (const r of rows) { by[r.category] += r.size_bytes || 0; count[r.category]++; }
+  for (const p of [...selected]) if (!rows.some(r => r.path === p)) selected.delete(p);
+  const selRows = rows.filter(r => selected.has(r.path));
+  const selBytes = selRows.reduce((s, r) => s + (r.size_bytes || 0), 0);
+
+  $("total").textContent = bytes(total);
+  $("reclaim").textContent = bytes(total - by.protected);
+  $("mergedSize").textContent = bytes(by.merged);
+  $("selSize").textContent = selRows.length ? `${bytes(selBytes)} · ${selRows.length}` : "–";
+  $("bar").innerHTML = Object.keys(CATS).map(k => `<div title="${CATS[k].label}: ${bytes(by[k])}" style="background:${CATS[k].color};width:${total ? by[k] / total * 100 : 0}%"></div>`).join("");
+  $("legend").innerHTML = Object.keys(CATS).map(k => `<span style="--c:${CATS[k].color}">${CATS[k].label} · ${count[k]} · ${bytes(by[k])}</span>`).join("");
+  $("chips").innerHTML = Object.keys(CATS).map(k => `<button class="chip" data-k="${k}" aria-pressed="${shown.has(k)}" style="--c:${CATS[k].color}">${CATS[k].label} (${count[k]})</button>`).join(" ");
+  $("chips").querySelectorAll("button").forEach(b => b.onclick = () => {
+    shown.has(b.dataset.k) ? shown.delete(b.dataset.k) : shown.add(b.dataset.k);
+    localStorage.setItem("chainsaw.cats", JSON.stringify([...shown])); render();
+  });
+
+  $("root").textContent = state.root || "";
+  let info = state.scanned_at && !state.scanned_at.startsWith("0001") ? "scanned " + ago(Date.parse(state.scanned_at)) : "never scanned";
+  if (state.scanning) info = state.to_measure ? `measuring ${state.measured} / ${state.to_measure}…` : "scanning git…";
+  if (state.deleting) info = "deleting…";
+  if (state.scan_error) info = "scan failed: " + state.scan_error;
+  $("scanInfo").textContent = info;
+  $("rescan").disabled = state.scanning || state.deleting;
+  const lp = state.last_prune;
+  $("pruneInfo").textContent = lp ? `auto-prune ${ago(Date.parse(lp.at))}: ${lp.removed} removed, ${bytes(lp.bytes_freed)} freed${lp.failed ? `, ${lp.failed} failed` : ""}` : "auto-prune: never ran";
+  $("del").disabled = !selRows.length || state.deleting;
+  $("del").textContent = selRows.length ? `Delete ${selRows.length} (${bytes(selBytes)})` : "Delete selected";
+
+  const vis = visibleRows();
+  $("empty").style.display = vis.length ? "none" : "block";
+  $("body").innerHTML = vis.map(r => rowHTML(r, total)).join("");
+  document.documentElement.style.setProperty("--header-h", $("hdr").offsetHeight + "px");
+}
+
+function rowHTML(r, total) {
+  const st = rowStatus.get(r.path) || {};
+  const cat = CATS[r.category];
+  const pct = total && r.size_bytes ? r.size_bytes / total * 100 : 0;
+  const note = st.msg ? `<span class="${st.failed ? "err" : ""}">${esc(st.msg)}</span>` : r.error ? `<span class="err">${esc(r.error)}</span>` : esc(r.reason || (r.primary ? "primary checkout" : ""));
+  const cls = ["cat-" + r.category, selected.has(r.path) ? "selected" : "", st.busy ? "busy" : "", st.failed ? "failed" : "", st.gone ? "gone" : ""].join(" ");
+  const t = ts(r);
+  return `<tr class="${cls}" data-p="${esc(r.path)}">
+    <td><input type="checkbox" ${selected.has(r.path) ? "checked" : ""} ${r.protected || state.deleting ? "disabled" : ""}></td>
+    <td title="${esc(r.repo)}">${esc(r.repo)}</td>
+    <td title="${esc(r.name)}">${esc(r.name)}</td>
+    <td title="${esc(r.branch)}">${esc(r.branch) || '<span class="muted">(detached)</span>'}</td>
+    <td><span class="badge" style="--c:${cat.color}">${cat.label}</span></td>
+    <td>${r.dirty ? '<span class="pill" title="Will be saved as a salvage patch, then force-removed">uncommitted</span>' : ""}</td>
+    <td class="num" title="${r.size_error ? esc(r.size_error) : ""}">${r.size_bytes == null ? (state.scanning ? "…" : "?") : bytes(r.size_bytes)}</td>
+    <td><div class="share"><i style="width:${Math.max(pct, 0.5)}%"></i><span class="muted">${pct >= 0.1 ? pct.toFixed(1) + "%" : ""}</span></div></td>
+    <td title="${t ? new Date(t).toLocaleString() : ""}">${ago(t)}</td>
+    <td title="${esc(r.last_commit_title)}">${esc(r.last_commit_title)}</td>
+    <td title="${esc(r.path)}"><code>${esc(r.path)}</code></td>
+    <td>${note}</td>
+  </tr>`;
+}
+
+$("body").addEventListener("click", e => {
+  const tr = e.target.closest("tr"); if (!tr) return;
+  const row = state.rows.find(r => r.path === tr.dataset.p);
+  if (!row || row.protected || state.deleting) return;
+  if (e.target.tagName !== "INPUT" && getSelection().toString()) return;
+  selected.has(row.path) ? selected.delete(row.path) : selected.add(row.path);
+  render();
+});
+
+// ---------- actions ----------
+$("filter").addEventListener("input", render);
+$("wrap").addEventListener("change", e => { document.body.classList.toggle("wrap", e.target.checked); localStorage.setItem("chainsaw.wrap", e.target.checked); });
+if (localStorage.getItem("chainsaw.wrap") === "true") { $("wrap").checked = true; document.body.classList.add("wrap"); }
+$("rescan").onclick = () => api("/api/rescan", {});
+$("clear").onclick = () => { selected.clear(); render(); };
+$("selMerged").onclick = () => { for (const r of visibleRows()) if (r.category === "merged") selected.add(r.path); render(); };
+
+$("del").onclick = () => {
+  const rows = state.rows.filter(r => selected.has(r.path));
+  const merged = rows.filter(r => r.category === "merged" && r.branch);
+  const kept = rows.filter(r => r.category !== "merged" && r.branch);
+  const dirty = rows.filter(r => r.dirty);
+  const list = (title, items, fmt) => items.length ? `<div><b>${title}</b> (${items.length})<ul>${items.map(r => `<li>${esc(fmt(r))}</li>`).join("")}</ul></div>` : "";
+  $("cTitle").textContent = `Delete ${rows.length} worktree${rows.length === 1 ? "" : "s"} (${bytes(rows.reduce((s, r) => s + (r.size_bytes || 0), 0))})?`;
+  $("cBody").innerHTML =
+    list("Remove worktrees", rows, r => r.path) +
+    list("Delete merged branches", merged, r => `${r.repo}: ${r.branch}`) +
+    list("Keep unmerged branches", kept, r => `${r.repo}: ${r.branch}`) +
+    list("⚠️ Uncommitted changes: salvage patch saved, then force-removed", dirty, r => r.path);
+  $("confirm").showModal();
+};
+$("cCancel").onclick = () => $("confirm").close();
+$("cOk").onclick = async () => {
+  $("confirm").close();
+  const items = state.rows.filter(r => selected.has(r.path)).map(r => ({ path: r.path, category: r.category }));
+  for (const it of items) rowStatus.set(it.path, { busy: true, msg: "queued…" });
+  render();
+  const res = await api("/api/delete", { items });
+  if (!res.ok) { toast(`<span class="err">${esc(await res.text())}</span>`); for (const it of items) rowStatus.delete(it.path); render(); }
+};
+
+// ---------- live updates ----------
+function upsert(row) {
+  const i = state.rows.findIndex(r => r.path === row.path);
+  if (i >= 0) state.rows[i] = row; else state.rows.push(row);
+}
+const DELETE_MSG = { started: "deleting…", salvaged: "salvaged, removing…", removed: "removed", branch_deleted: "branch deleted", branch_kept: "removed, branch kept", skipped: "skipped" };
+function connect() {
+  const es = new EventSource("/api/events?t=" + encodeURIComponent(token));
+  es.addEventListener("state", e => {
+    const next = JSON.parse(e.data);
+    const paths = new Set(next.rows.map(r => r.path));
+    for (const p of rowStatus.keys()) if (!paths.has(p) && !rowStatus.get(p).gone) rowStatus.delete(p);
+    state = next; render();
+  });
+  es.addEventListener("row", e => { upsert(JSON.parse(e.data)); render(); });
+  es.addEventListener("scan_progress", e => { Object.assign(state, JSON.parse(e.data)); $("scanInfo").textContent = `measuring ${state.measured} / ${state.to_measure}…`; clearTimeout(connect.t); connect.t = setTimeout(render, 150); });
+  es.addEventListener("lock_wait", () => toast("Waiting for a running auto-prune to finish…"));
+  es.addEventListener("delete", e => {
+    const ev = JSON.parse(e.data);
+    if (ev.kind === "failed" || ev.kind === "skipped") {
+      rowStatus.set(ev.path, { failed: true, msg: ev.message || ev.kind });
+      selected.delete(ev.path);
+    } else if (ev.kind === "removed") {
+      rowStatus.set(ev.path, { busy: true, gone: true, msg: "removed" });
+      setTimeout(() => { state.rows = state.rows.filter(r => r.path !== ev.path); rowStatus.delete(ev.path); selected.delete(ev.path); render(); }, 450);
+    } else if (!(rowStatus.get(ev.path) || {}).gone) {
+      rowStatus.set(ev.path, { busy: true, msg: ev.kind === "salvaged" ? "salvaged → " + ev.message : DELETE_MSG[ev.kind] || ev.kind });
+    }
+    render();
+  });
+  es.addEventListener("delete_done", e => {
+    const d = JSON.parse(e.data);
+    toast(`Deleted ${d.removed} worktree${d.removed === 1 ? "" : "s"}${d.failed ? `, <span class="err">${d.failed} failed</span>` : ""}.`);
+  });
+  es.onerror = () => { $("scanInfo").textContent = "disconnected, retrying…"; };
+}
+
+buildHead();
+api("/api/state").then(r => r.json()).then(s => { state = s; render(); connect(); });
+setInterval(() => { if (!state.scanning && !state.deleting) render(); }, 60000);
+</script>
+</body>
+</html>
