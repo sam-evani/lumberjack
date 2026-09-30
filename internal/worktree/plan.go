@@ -46,7 +46,7 @@ func PlanDeletion(entries []Entry, selected map[string]bool, mode DeleteMode) De
 			continue
 		}
 		if entry.Dirty && mode == DeleteNormal {
-			plan.Skipped = append(plan.Skipped, SkippedAction{Entry: entry, Reason: "dirty; press D to force delete"})
+			plan.Skipped = append(plan.Skipped, SkippedAction{Entry: entry, Reason: "dirty"})
 			continue
 		}
 

@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -202,9 +204,49 @@ func (g *Exec) DeleteBranch(branch string) error {
 	return err
 }
 
+func (g *Exec) PruneWorktrees() error {
+	_, err := g.run(g.dir, "worktree", "prune")
+	return err
+}
+
+// SalvagePatch returns a binary diff of tracked and untracked (non-ignored)
+// changes against HEAD, using a throwaway index so the worktree is untouched.
+func (g *Exec) SalvagePatch(worktreePath string) ([]byte, error) {
+	tmp, err := os.MkdirTemp("", "chainsaw-index-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(tmp)
+	env := []string{"GIT_INDEX_FILE=" + filepath.Join(tmp, "index")}
+
+	if _, err := g.runEnv(worktreePath, env, "read-tree", "HEAD"); err != nil {
+		return nil, err
+	}
+	if _, err := g.runEnv(worktreePath, env, "add", "-A"); err != nil {
+		return nil, err
+	}
+	cmd := exec.Command("git", "diff", "--cached", "--binary", "HEAD")
+	cmd.Dir = worktreePath
+	cmd.Env = append(os.Environ(), env...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, commandError{args: []string{"diff", "--cached", "--binary", "HEAD"}, output: stderr.Bytes(), err: err}
+	}
+	return out, nil
+}
+
 func (g *Exec) run(dir string, args ...string) ([]byte, error) {
+	return g.runEnv(dir, nil, args...)
+}
+
+func (g *Exec) runEnv(dir string, env []string, args ...string) ([]byte, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
+	if env != nil {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return out, commandError{args: args, output: out, err: err}
