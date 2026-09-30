@@ -2,13 +2,12 @@ package cmd
 
 import (
 	"bytes"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/sam-evani/lumberjack/internal/tui"
 	"github.com/sam-evani/lumberjack/internal/worktree"
+	"github.com/spf13/cobra"
 )
 
 func executeRootForTest(args ...string) (string, string, error) {
@@ -73,69 +72,31 @@ func TestRootRejectsArgs(t *testing.T) {
 	}
 }
 
-func TestRootScansRequestedRootAndLaunchesTUIWithGitDeleter(t *testing.T) {
-	originalRootRows := rootRows
-	originalRunTUI := runTUI
-	t.Cleanup(func() {
-		rootRows = originalRootRows
-		runTUI = originalRunTUI
-	})
-
-	wantRoot := "/tmp/chainsaw-root"
-	wantRows := []worktree.Entry{{RepoName: "repo", RepoPath: "/repo", Path: "/repo/.worktrees/feature"}}
-	var scannedRoot string
-	var launchedRows []worktree.Entry
-	var launchedDeleter tui.Deleter
-	var launchedRefresh tui.RefreshFunc
-
-	rootRows = func(root string) ([]worktree.Entry, error) {
-		scannedRoot = root
-		return wantRows, nil
-	}
-	runTUI = func(rows []worktree.Entry, deleter tui.Deleter, refresh tui.RefreshFunc) error {
-		launchedRows = rows
-		launchedDeleter = deleter
-		launchedRefresh = refresh
+func TestRootLaunchesWebUIWithServeFlags(t *testing.T) {
+	original, originalNoOpen := runServe, serveNoOpen
+	t.Cleanup(func() { runServe, serveNoOpen = original, originalNoOpen })
+	called := false
+	runServe = func(*cobra.Command) error {
+		called = true
 		return nil
 	}
-
-	stdout, stderr, err := executeRootForTest("--root", wantRoot)
-	if err != nil {
+	if _, _, err := executeRootForTest("--no-open"); err != nil {
 		t.Fatalf("expected root command to succeed, got %v", err)
 	}
-	if stdout != "" {
-		t.Fatalf("expected no stdout, got %q", stdout)
+	if !called || !serveNoOpen {
+		t.Fatalf("runServe called = %v, no-open = %v", called, serveNoOpen)
 	}
-	if stderr != "" {
-		t.Fatalf("expected no stderr, got %q", stderr)
-	}
-	if scannedRoot != wantRoot {
-		t.Fatalf("rootRows called with %q, want %q", scannedRoot, wantRoot)
-	}
-	if !reflect.DeepEqual(launchedRows, wantRows) {
-		t.Fatalf("runTUI rows = %#v, want %#v", launchedRows, wantRows)
-	}
-	if _, ok := launchedDeleter.(tui.GitDeleter); !ok {
-		t.Fatalf("runTUI deleter = %T, want tui.GitDeleter", launchedDeleter)
-	}
-	if launchedRefresh == nil {
-		t.Fatal("runTUI refresh = nil, want refresh closure")
-	}
+}
 
-	refreshedRows := []worktree.Entry{{RepoName: "repo", RepoPath: "/repo", Path: "/repo/.worktrees/refreshed"}}
-	rootRows = func(root string) ([]worktree.Entry, error) {
-		scannedRoot = root
-		return refreshedRows, nil
-	}
-	gotRows, err := launchedRefresh()
+func TestHelpListsSubcommands(t *testing.T) {
+	stdout, _, err := executeRootForTest("--help")
 	if err != nil {
-		t.Fatalf("refresh returned error: %v", err)
+		t.Fatal(err)
 	}
-	if scannedRoot != wantRoot {
-		t.Fatalf("refresh rootRows called with %q, want %q", scannedRoot, wantRoot)
-	}
-	if !reflect.DeepEqual(gotRows, refreshedRows) {
-		t.Fatalf("refresh rows = %#v, want %#v", gotRows, refreshedRows)
+	for _, want := range []string{"prune", "serve", "schedule", "list"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected help to mention %q, got %q", want, stdout)
+		}
 	}
 }
 

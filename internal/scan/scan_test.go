@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -319,6 +320,7 @@ func TestRootKeepsLockedAndBareEntriesProtected(t *testing.T) {
 }
 
 type fakeGit struct {
+	mu        sync.Mutex
 	listErr   error
 	baseErr   error
 	porcelain []byte
@@ -363,6 +365,8 @@ func (g *fakeGit) AvailableBaseRefs(candidates []string) ([]string, error) {
 }
 
 func (g *fakeGit) MergedIntoAny(branch string, baseRefs []string) (bool, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	g.mergeCalls = append(g.mergeCalls, branch)
 	if err := g.mergeErrs[branch]; err != nil {
 		return false, err
@@ -371,6 +375,8 @@ func (g *fakeGit) MergedIntoAny(branch string, baseRefs []string) (bool, error) 
 }
 
 func (g *fakeGit) IsDirty(worktreePath string) (bool, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	if g.dirtyCalls == nil {
 		g.dirtyCalls = map[string]int{}
 	}
@@ -382,12 +388,22 @@ func (g *fakeGit) IsDirty(worktreePath string) (bool, error) {
 }
 
 func (g *fakeGit) LastCommit(worktreePath string) (int64, string, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	if g.lastCommitCalls == nil {
 		g.lastCommitCalls = map[string]int{}
 	}
 	g.lastCommitCalls[worktreePath]++
 	commit := g.commits[worktreePath]
 	return commit.unix, commit.subject, commit.err
+}
+
+func (g *fakeGit) HeadContainedIn(worktreePath string, baseRefs []string) (string, error) {
+	return "main", nil
+}
+
+func (g *fakeGit) LastActivity(worktreePath string) (time.Time, error) {
+	return time.Time{}, nil
 }
 
 func (g *fakeGit) RemoveWorktree(path string, force bool) error {

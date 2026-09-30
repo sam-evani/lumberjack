@@ -67,7 +67,7 @@ func TestPlanDeletionNormalSkipsDirtyAndProtectedSelectedRows(t *testing.T) {
 		t.Fatalf("RemoveWorktrees = %#v, want none", got.RemoveWorktrees)
 	}
 	wantSkipped := []SkippedAction{
-		{Entry: entries[0], Reason: "dirty; press D to force delete"},
+		{Entry: entries[0], Reason: "dirty"},
 		{Entry: entries[1], Reason: "protected: main/master"},
 	}
 	if !reflect.DeepEqual(got.Skipped, wantSkipped) {
